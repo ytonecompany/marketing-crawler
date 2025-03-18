@@ -28,11 +28,12 @@ logging.basicConfig(
 )
 
 # 환경 변수에서 API 키 읽기
-api_key = os.environ["OPENAI_API_KEY"]  # 없으면 오류 발생
-
-# API 키가 설정되지 않은 경우 오류 처리
-if not api_key:
-    raise ValueError("API 키가 설정되지 않았습니다. 환경 변수를 확인하세요.")
+try:
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise ValueError("API 키가 비어 있습니다. 환경 변수를 확인하세요.")
+except KeyError:
+    raise ValueError("OPENAI_API_KEY 환경 변수가 설정되지 않았습니다.")
 
 # Google Sheets 설정
 SPREADSHEET_ID = '1shWpyaGrQF00YKkmYGftL2IAEOgmZ8kjw2s-WKbdyGg'
