@@ -28,7 +28,7 @@ logging.basicConfig(
 )
 
 # 환경 변수에서 API 키 읽기
-api_key = os.environ.get("OPENAI_API_KEY", "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")
+api_key = os.environ["OPENAI_API_KEY"]  # 없으면 오류 발생
 
 # API 키가 설정되지 않은 경우 오류 처리
 if not api_key:
