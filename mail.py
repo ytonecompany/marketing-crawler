@@ -306,7 +306,7 @@ def check_for_new_entries_and_notify():
                         
                         <!-- 콘텐츠 요약 - 불릿 포인트 개선 적용 -->
                         <div style="background-color: #f9f9f9; padding: 15px; margin: 15px 0; border-radius: 4px;">
-                            <div style="font-weight: bold; margin-bottom: 10px;">콘텐츠 요약</div>
+                            <div style="font-weight: bold; margin-bottom: 10px;">AI가 요약한 내용</div>
                             <div style="line-height: 1.7;">
                                 {summary_formatted if summary_formatted else summary}
                             </div>
