@@ -93,7 +93,7 @@ def summarize_text(text, max_length=200):
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "너는 광고 플랫폼 공지사항을 요약하는 전문가야. 다음 형식으로 요약해줘: [주요 변경사항], [적용 일정], [영향 및 조치사항]."},
+                {"role": "system", "content": "너는 광고 플랫폼 공지사항을 요약하는 전문가야. 다음 형식으로 요약해줘: [주요 변경사항], [적용 일정], [영향 및 조치사항]. 문장이 자연스럽게 끝나도록 해줘."},
                 {"role": "user", "content": f"다음 공지사항을 요약해줘:\n\n{text}"}
             ],
             max_tokens=150,
