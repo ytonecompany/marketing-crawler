@@ -1,6 +1,8 @@
 name: Send Email
 
 on:
+  schedule:
+    - cron: '30 1 * * *'  # 매일 UTC 1시 30분 (한국 시간 10시 30분)에 실행
   workflow_dispatch:  # 수동 실행 옵션
 
 jobs:
