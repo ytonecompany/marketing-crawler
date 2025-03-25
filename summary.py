@@ -82,7 +82,7 @@ def setup_google_sheets():
         print(f"Google Sheets 설정 중 오류 발생: {str(e)}")
         raise
 
-def summarize_text(text, max_length=200):
+def summarize_text(text, max_length=200, sheet_name=None):
     """OpenAI API를 사용하여 텍스트 요약"""
     if not text or len(text) < 100:
         return text
@@ -90,18 +90,32 @@ def summarize_text(text, max_length=200):
     try:
         client = OpenAI(api_key=api_key)
         
-        # Boss_pdf와 Boss_pdf2는 마케팅 자료가 많으므로 시스템 프롬프트 수정
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "너는 마케팅 자료와 광고 플랫폼 공지사항을 요약하는 전문가야. 다음 형식으로 요약해줘: [주요 내용], [중요 정보], [활용 방안]. 모든 문장이 완전하게 끝나도록 하고, 중간에 잘리지 않게 해줘. 특히 마지막 문장이 자연스럽게 완결되어야 해."},
-                {"role": "user", "content": f"다음 내용을 간결하게 요약해줘:\n\n{text}"}
-            ],
-            max_tokens=200,
-            temperature=0.3,
-            presence_penalty=0.2,
-            frequency_penalty=0.2
-        )
+        # Boss_pdf와 Boss_pdf2는 핵심 내용을 넘버링 형식으로 요약
+        if sheet_name in ['Boss_pdf', 'Boss_pdf2']:
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "너는 마케팅 자료와 광고 플랫폼 공지사항을 핵심 요약하는 전문가야. 다음 형식으로 정확히 요약해줘:\n\n1. [첫 번째 핵심 포인트]\n2. [두 번째 핵심 포인트]\n3. [세 번째 핵심 포인트]\n\n각 포인트는 간결하고 명확하게 작성하고, 전체 요약은 200자 이내로 제한해줘. 반드시 1, 2, 3 넘버링 형식을 유지하고 각 항목을 줄바꿈으로 구분해줘. 다른 설명이나 서식은 추가하지 마."},
+                    {"role": "user", "content": f"다음 마케팅 자료의 핵심 내용을 3가지 넘버링 포인트로 요약해줘:\n\n{text}"}
+                ],
+                max_tokens=200,
+                temperature=0.3,
+                presence_penalty=0.2,
+                frequency_penalty=0.2
+            )
+        else:
+            # 기존 로직 - 다른 시트들은 이전 요약 형식 유지
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "너는 마케팅 자료와 광고 플랫폼 공지사항을 요약하는 전문가야. 다음 형식으로 요약해줘: [주요 내용], [중요 정보], [활용 방안]. 모든 문장이 완전하게 끝나도록 하고, 중간에 잘리지 않게 해줘. 특히 마지막 문장이 자연스럽게 완결되어야 해."},
+                    {"role": "user", "content": f"다음 내용을 간결하게 요약해줘:\n\n{text}"}
+                ],
+                max_tokens=200,
+                temperature=0.3,
+                presence_penalty=0.2,
+                frequency_penalty=0.2
+            )
         
         summary = response.choices[0].message.content.strip()
         
@@ -162,7 +176,8 @@ def process_sheet(sheet):
             content = row[4]  # E열이 내용 열
             print(f"'{row[0]}' 요약 중...")
             
-            summary = summarize_text(content)
+            # 시트 이름을 함수에 전달하여 적절한 요약 형식 선택
+            summary = summarize_text(content, sheet_name=sheet.title)
             
             # 요약 결과 업데이트
             sheet.update_cell(row_idx, 6, summary)  # 6번째 열(F열)이 요약 열
