@@ -37,7 +37,7 @@ except KeyError:
 
 # Google Sheets 설정
 SPREADSHEET_ID = '1shWpyaGrQF00YKkmYGftL2IAEOgmZ8kjw2s-WKbdyGg'
-SHEET_NAMES = ['Naver_Ads', 'Google_Ads', 'Meta_Ads']
+SHEET_NAMES = ['Naver_Ads', 'Google_Ads', 'Meta_Ads', 'Boss_pdf', 'Boss_pdf2']
 
 def setup_google_sheets():
     # 필요한 모든 스코프 추가
@@ -90,11 +90,12 @@ def summarize_text(text, max_length=200):
     try:
         client = OpenAI(api_key=api_key)
         
+        # Boss_pdf와 Boss_pdf2는 마케팅 자료가 많으므로 시스템 프롬프트 수정
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "너는 광고 플랫폼 공지사항을 요약하는 전문가야. 다음 형식으로 요약해줘: [주요 변경사항], [적용 일정], [영향 및 조치사항]. 모든 문장이 완전하게 끝나도록 하고, 중간에 잘리지 않게 해줘. 특히 마지막 문장이 자연스럽게 완결되어야 해."},
-                {"role": "user", "content": f"다음 공지사항을 요약해줘:\n\n{text}"}
+                {"role": "system", "content": "너는 마케팅 자료와 광고 플랫폼 공지사항을 요약하는 전문가야. 다음 형식으로 요약해줘: [주요 내용], [중요 정보], [활용 방안]. 모든 문장이 완전하게 끝나도록 하고, 중간에 잘리지 않게 해줘. 특히 마지막 문장이 자연스럽게 완결되어야 해."},
+                {"role": "user", "content": f"다음 내용을 간결하게 요약해줘:\n\n{text}"}
             ],
             max_tokens=200,
             temperature=0.3,
@@ -140,9 +141,17 @@ def process_sheet(sheet):
     
     # 요약이 필요한 행 찾기
     rows_to_update = []
-    for i, row in enumerate(rows, start=2):  # 시트 인덱스는 1부터 시작, 헤더가 1행이므로 2부터
-        if len(row) >= 6 and row[4] and not row[5]:  # 내용은 있고 요약은 없는 경우
-            rows_to_update.append((i, row))
+    
+    # Boss_pdf와 Boss_pdf2는 E열에 내용, F열에 요약(중요여부)
+    if sheet.title in ['Boss_pdf', 'Boss_pdf2']:
+        for i, row in enumerate(rows, start=2):  # 시트 인덱스는 1부터 시작, 헤더가 1행이므로 2부터
+            if len(row) >= 5 and row[4] and (len(row) < 6 or not row[5]):  # 내용은 있고 요약은 없는 경우
+                rows_to_update.append((i, row))
+    else:
+        # 기존 로직 - 다른 시트들은 이전 컬럼 구조 사용
+        for i, row in enumerate(rows, start=2):
+            if len(row) >= 6 and row[4] and not row[5]:  # 내용은 있고 요약은 없는 경우
+                rows_to_update.append((i, row))
     
     print(f"요약이 필요한 항목 수: {len(rows_to_update)}")
     
@@ -150,13 +159,13 @@ def process_sheet(sheet):
     updated_count = 0
     for row_idx, row in rows_to_update:
         try:
-            content = row[4]
+            content = row[4]  # E열이 내용 열
             print(f"'{row[0]}' 요약 중...")
             
             summary = summarize_text(content)
             
             # 요약 결과 업데이트
-            sheet.update_cell(row_idx, 6, summary)  # 6번째 열이 요약 열
+            sheet.update_cell(row_idx, 6, summary)  # 6번째 열(F열)이 요약 열
             
             updated_count += 1
             print(f"'{row[0]}' 요약 완료")
