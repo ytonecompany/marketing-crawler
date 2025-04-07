@@ -458,23 +458,61 @@ if __name__ == "__main__":
     logging.info(f"크롤링 시작: {current_time}")
     
     try:
-        # 스프레드시트 연결
-        SPREADSHEET_ID = '1shWpyaGrQF00YKkmYGftL2IAEOgmZ8kjw2s-WKbdyGg'
-        service_account_file = 'naver-452205-a733573ea425.json'
+        # 로그 출력 추가
+        print(f"메타 광고 크롤링 시작: {current_time}")
         
-        # 스프레드시트 연결
-        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        credentials = ServiceAccountCredentials.from_json_keyfile_name(service_account_file, scope)
-        gc = gspread.authorize(credentials)
-        
-        # 스프레드시트 및 워크시트 열기
-        spreadsheet = gc.open_by_key(SPREADSHEET_ID)
-        sheet = spreadsheet.worksheet('Meta_Ads')
-        
-        # 크롤링 함수 호출 - sheet 인자 전달
-        crawl_meta_ads(sheet)
+        # 스프레드시트 연결 시도
+        try:
+            sheet = setup_google_sheets()
+            print("스프레드시트 연결 성공")
+            # 크롤링 함수 호출 - sheet 인자 전달
+            crawl_meta_ads(sheet)
+        except Exception as sheet_error:
+            print(f"스프레드시트 연결 실패: {str(sheet_error)}")
+            logging.error(f"스프레드시트 연결 실패: {str(sheet_error)}")
+            
+            # 백업 접근 방법 시도
+            try:
+                print("대체 인증 방법으로 시도합니다...")
+                
+                # 서비스 계정 파일 경로 설정
+                service_account_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'naver-452205-a733573ea425.json')
+                
+                # 파일 존재 여부 확인
+                print(f"서비스 계정 파일 경로: {service_account_file}")
+                print(f"파일 존재 여부: {os.path.exists(service_account_file)}")
+                
+                # 필요한 모든 스코프 추가
+                scope = [
+                    'https://spreadsheets.google.com/feeds',
+                    'https://www.googleapis.com/auth/drive',
+                    'https://www.googleapis.com/auth/spreadsheets'
+                ]
+                
+                # 서비스 계정 인증 정보 생성
+                credentials = service_account.Credentials.from_service_account_file(
+                    service_account_file, scopes=scope)
+                
+                # gspread 클라이언트 생성
+                gc = gspread.authorize(credentials)
+                print(f"서비스 계정 이메일: crawling@naver-452205.iam.gserviceaccount.com")
+                
+                # 스프레드시트 열기
+                spreadsheet = gc.open_by_key('1shWpyaGrQF00YKkmYGftL2IAEOgmZ8kjw2s-WKbdyGg')
+                sheet = spreadsheet.worksheet('Meta_Ads')
+                print("대체 인증 방법으로 시트 연결 성공")
+                
+                # 크롤링 함수 호출
+                crawl_meta_ads(sheet)
+                
+            except Exception as backup_error:
+                print(f"대체 인증 방법도 실패: {str(backup_error)}")
+                logging.error(f"대체 인증 방법도 실패: {str(backup_error)}")
+                raise
     except Exception as e:
+        print(f"크롤링 중 오류 발생: {str(e)}")
         logging.error(f"크롤링 중 오류 발생: {str(e)}")
     
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"크롤링 종료: {current_time}")
     logging.info(f"크롤링 종료: {current_time}") 
