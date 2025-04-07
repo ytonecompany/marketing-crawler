@@ -169,20 +169,25 @@ def crawl_meta_ads(sheet):
         driver.set_page_load_timeout(60)
         wait = WebDriverWait(driver, 20)
         
-        # Meta Business Help Center 페이지 접속
-        url = 'https://www.facebook.com/business/help/updates'
+        # 메타 비즈니스 도움말 공지사항 페이지로 URL 변경
+        # 이전 URL: 'https://www.facebook.com/business/help/updates'
+        # 새로운 URL: 'https://www.facebook.com/business/news'
+        url = 'https://www.facebook.com/business/news'
+        print(f"페이지 접속 시도: {url}")
         logging.info(f"페이지 접속 시도: {url}")
         driver.get(url)
         
         # 디버깅을 위해 페이지 소스 저장
         with open('page_source.html', 'w', encoding='utf-8') as f:
             f.write(driver.page_source)
+        print("페이지 소스를 page_source.html에 저장했습니다.")
         logging.info("페이지 소스를 page_source.html에 저장했습니다.")
         
         # 스크린샷 저장
         now = datetime.now().strftime("%Y%m%d_%H%M%S")
         screenshot_path = f"screenshots/meta_ads_{now}.png"
         driver.save_screenshot(screenshot_path)
+        print(f"스크린샷을 {os.path.abspath(screenshot_path)}에 저장했습니다.")
         logging.info(f"스크린샷을 {os.path.abspath(screenshot_path)}에 저장했습니다.")
         
         # 페이지가 로드될 때까지 명시적 대기 추가
@@ -191,69 +196,83 @@ def crawl_meta_ads(sheet):
             try:
                 cookie_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Accept') or contains(text(), 'Allow') or contains(text(), '수락')]")))
                 cookie_button.click()
+                print("쿠키 동의 버튼을 클릭했습니다.")
                 logging.info("쿠키 동의 버튼을 클릭했습니다.")
                 time.sleep(2)  # 쿠키 대화상자가 사라질 때까지 잠시 대기
             except:
+                print("쿠키 동의 버튼이 없거나 클릭할 수 없습니다.")
                 logging.info("쿠키 동의 버튼이 없거나 클릭할 수 없습니다.")
             
-            # 공지사항 컨테이너 찾기 - 여러 선택자 시도
+            # 새로운 페이지 구조에 맞는 게시글 요소 찾기
             article_elements = None
             
-            # 첫 번째 방법: 직접적인 XPath 사용
+            # 첫 번째 방법: 비즈니스 뉴스 게시물 찾기
             try:
-                article_elements = wait.until(EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'article') or contains(@class, 'post') or contains(@class, 'update')]")))
-                logging.info("XPath로 공지사항 요소를 찾았습니다.")
+                # 게시물 컨테이너를 찾습니다
+                article_elements = wait.until(EC.presence_of_all_elements_located((
+                    By.XPATH, "//div[contains(@class, 'news-item') or contains(@class, 'article') or contains(@class, 'card')]"
+                )))
+                print(f"XPath로 {len(article_elements)}개의 뉴스 게시물을 찾았습니다.")
+                logging.info(f"XPath로 {len(article_elements)}개의 뉴스 게시물을 찾았습니다.")
             except:
-                logging.info("XPath로 공지사항 요소를 찾지 못했습니다. 다른 방법을 시도합니다.")
+                print("특정 클래스로 게시물을 찾지 못했습니다. 다른 방법을 시도합니다.")
+                logging.info("특정 클래스로 게시물을 찾지 못했습니다. 다른 방법을 시도합니다.")
             
-            # 두 번째 방법: 태그 이름으로 검색
+            # 두 번째 방법: 일반적인 게시물 컨테이너 찾기
             if not article_elements or len(article_elements) == 0:
                 try:
-                    article_elements = wait.until(EC.presence_of_all_elements_located((By.TAG_NAME, "article")))
-                    logging.info("article 태그로 공지사항 요소를 찾았습니다.")
-                except:
-                    logging.info("article 태그로 공지사항 요소를 찾지 못했습니다. 다른 방법을 시도합니다.")
-            
-            # 세 번째 방법: 더 일반적인 div 요소 찾기
-            if not article_elements or len(article_elements) == 0:
-                try:
-                    # 페이지의 주요 컨텐츠 영역을 찾기 위한 시도
+                    # 더 일반적인 구조의 게시물 컨테이너를 찾습니다
                     main_content = wait.until(EC.presence_of_element_located((
-                        By.XPATH, "//main | //div[contains(@class, 'content') or contains(@class, 'main')]")))
+                        By.XPATH, "//main | //div[@role='main'] | //div[contains(@class, 'content')]"
+                    )))
                     
-                    # 메인 컨텐츠 내의 업데이트 항목을 나타낼 수 있는 요소들 찾기
+                    # 메인 컨텐츠 내에서 각 뉴스 아이템이나 카드를 찾습니다
                     article_elements = main_content.find_elements(By.XPATH, 
-                        ".//div[contains(@class, 'card') or contains(@class, 'item') or contains(@class, 'post') or @role='article']")
-                    logging.info("메인 컨텐츠 내에서 업데이트 항목을 찾았습니다.")
-                except:
-                    logging.info("메인 컨텐츠에서 업데이트 항목을 찾지 못했습니다.")
-            
-            # 마지막 시도: 페이지의 모든 링크 요소 검색
-            if not article_elements or len(article_elements) == 0:
-                try:
-                    # 제목을 포함할 가능성이 있는 h2, h3 요소 찾기
-                    heading_elements = driver.find_elements(By.XPATH, "//h2 | //h3 | //h4")
+                        ".//div[contains(@class, 'item') or contains(@class, 'card') or contains(@class, 'post')]")
                     
-                    if heading_elements and len(heading_elements) > 0:
-                        # 부모 요소를 게시글로 간주
+                    if not article_elements or len(article_elements) == 0:
+                        # 헤딩 요소를 기준으로 상위 컨테이너를 찾습니다
+                        headings = main_content.find_elements(By.XPATH, ".//h1 | .//h2 | .//h3")
                         article_elements = []
-                        for heading in heading_elements:
+                        for heading in headings:
                             try:
-                                # 부모 div를 찾아 게시글로 간주
-                                parent = heading.find_element(By.XPATH, "./ancestor::div[3]")
-                                article_elements.append(parent)
+                                # 헤딩을 포함하는 부모 컨테이너를 찾습니다
+                                container = heading.find_element(By.XPATH, "./ancestor::div[position() <= 3]")
+                                article_elements.append(container)
                             except:
                                 pass
-                        logging.info(f"제목 요소를 기반으로 {len(article_elements)}개의 게시글을 찾았습니다.")
+                    
+                    print(f"메인 컨텐츠에서 {len(article_elements)}개의 게시물을 찾았습니다.")
+                    logging.info(f"메인 컨텐츠에서 {len(article_elements)}개의 게시물을 찾았습니다.")
                 except:
-                    logging.info("제목 요소를 기반으로 게시글을 찾지 못했습니다.")
+                    print("메인 컨텐츠에서 게시물을 찾지 못했습니다.")
+                    logging.info("메인 컨텐츠에서 게시물을 찾지 못했습니다.")
             
             # 공지사항 요소를 찾지 못한 경우
             if not article_elements or len(article_elements) == 0:
+                # 최종 시도: 페이지의 모든 링크와 타이틀 찾기
+                try:
+                    links = driver.find_elements(By.XPATH, "//a[.//h2 or .//h3 or .//span[@class='title']]")
+                    if links and len(links) > 0:
+                        article_elements = links
+                        print(f"링크 요소로 {len(article_elements)}개의 게시물을 찾았습니다.")
+                        logging.info(f"링크 요소로 {len(article_elements)}개의 게시물을 찾았습니다.")
+                except:
+                    pass
+            
+            # 모든 시도 후에도 게시물을 찾지 못한 경우
+            if not article_elements or len(article_elements) == 0:
                 driver.save_screenshot(f"screenshots/meta_ads_error_{now}.png")
-                logging.error("공지사항 요소를 찾지 못했습니다. 페이지 구조가 변경되었을 수 있습니다.")
+                error_msg = "게시물 요소를 찾지 못했습니다. 페이지 구조가 변경되었을 수 있습니다."
+                print(error_msg)
+                logging.error(error_msg)
+                
+                # 페이지 소스 추가 저장
+                with open(f"page_source_error_{now}.html", 'w', encoding='utf-8') as f:
+                    f.write(driver.page_source)
                 return
             
+            print(f"찾은 항목 수: {len(article_elements)}")
             logging.info(f"찾은 항목 수: {len(article_elements)}")
             
             # 기존 데이터 가져오기
@@ -263,21 +282,28 @@ def crawl_meta_ads(sheet):
             # 새로운 공지사항 항목 처리
             new_items = []
             
-            for article in article_elements[:15]:  # 최신 15개 항목만 처리
+            for article in article_elements[:20]:  # 최신 20개 항목만 처리
                 try:
                     # 스크롤하여 현재 항목이 보이게 함
                     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", article)
                     time.sleep(0.5)  # 스크롤 후 잠시 대기
                     
+                    # 디버깅을 위해 현재 항목의 HTML 출력
+                    article_html = article.get_attribute('outerHTML')
+                    print(f"현재 처리 중인 항목 HTML: {article_html[:200]}...")  # 너무 길면 자름
+                    
                     # 제목 추출 시도
                     title_element = None
                     try:
-                        title_element = article.find_element(By.XPATH, ".//h2 | .//h3 | .//h4 | .//strong | .//b | .//div[contains(@class, 'title')]")
+                        title_element = article.find_element(By.XPATH, ".//h2 | .//h3 | .//div[contains(@class, 'title')] | .//span[contains(@class, 'title')]")
                     except:
-                        # 제목 요소를 찾지 못한 경우, 첫 번째 텍스트 노드를 제목으로 사용
-                        paragraphs = article.find_elements(By.TAG_NAME, "p")
-                        if paragraphs:
-                            title_element = paragraphs[0]
+                        try:
+                            # 다른 가능한 제목 요소 찾기
+                            title_element = article.find_element(By.XPATH, ".//strong | .//b | .//a")
+                        except:
+                            # 요소가 텍스트를 직접 포함하는 경우
+                            if article.text.strip():
+                                title_element = article
                     
                     # 제목 텍스트 추출
                     title = "제목 없음"
@@ -287,14 +313,20 @@ def crawl_meta_ads(sheet):
                         if len(title) > 100:
                             title = title[:97] + "..."
                     
+                    # 제목이 유효한지 확인
+                    if not title or title == "제목 없음" or "page doesn't exist" in title.lower():
+                        print(f"유효하지 않은 제목 건너뜀: {title}")
+                        continue
+                    
                     # 날짜 추출 시도
                     date_str = ""
                     try:
-                        # 날짜 패턴이 있는 요소 찾기
+                        # 다양한 날짜 패턴 확인
                         date_patterns = [
                             ".//time",
-                            ".//span[contains(text(), '/') or contains(text(), '-') or contains(text(), '년') or contains(text(), '월')]",
-                            ".//div[contains(text(), '/') or contains(text(), '-') or contains(text(), '년') or contains(text(), '월')]"
+                            ".//span[contains(text(), '/') or contains(text(), '-') or contains(text(), '년')]",
+                            ".//div[contains(@class, 'date') or contains(@class, 'time')]",
+                            ".//span[contains(@class, 'date') or contains(@class, 'time')]"
                         ]
                         
                         for pattern in date_patterns:
@@ -306,11 +338,11 @@ def crawl_meta_ads(sheet):
                             except:
                                 continue
                         
-                        # 날짜 요소를 찾지 못한 경우 현재 날짜 사용
+                        # 날짜를 찾지 못한 경우 현재 날짜 사용
                         if not date_str:
                             date_str = datetime.now().strftime("%Y-%m-%d")
                         else:
-                            # 다양한 날짜 형식 처리
+                            # 표준 형식으로 변환
                             date_str = standardize_date(date_str)
                     except:
                         # 날짜 추출 실패 시 현재 날짜 사용
@@ -319,62 +351,94 @@ def crawl_meta_ads(sheet):
                     # 링크 추출 시도
                     link = ""
                     try:
-                        link_element = article.find_element(By.XPATH, ".//a")
-                        link = link_element.get_attribute("href")
+                        # 요소 자체가 <a> 태그인 경우
+                        if article.tag_name == 'a':
+                            link = article.get_attribute("href")
+                        else:
+                            # 내부에 <a> 태그가 있는 경우
+                            link_element = article.find_element(By.XPATH, ".//a")
+                            link = link_element.get_attribute("href")
                     except:
-                        link = "https://www.facebook.com/business/help/updates"
+                        # 링크를 찾지 못한 경우 기본 URL 사용
+                        link = url
                     
                     # 내용 추출 시도
                     content = ""
                     try:
-                        # 제목을 제외한 모든 단락 추출
-                        paragraphs = article.find_elements(By.TAG_NAME, "p")
-                        if len(paragraphs) > 1:  # 첫 번째 단락이 제목일 수 있으므로 건너뜀
-                            content = "\n".join([p.text.strip() for p in paragraphs[1:]])
+                        # 제목을 제외한 텍스트 추출
+                        if title_element and title_element != article:
+                            # 제목 요소를 제외한 나머지 텍스트
+                            all_text = article.text.strip()
+                            content = all_text.replace(title, "").strip()
                         else:
-                            # 단락이 없는 경우 div 요소 내용 사용
-                            content_divs = article.find_elements(By.XPATH, ".//div[not(contains(@class, 'title'))]")
-                            content = "\n".join([div.text.strip() for div in content_divs if div.text.strip()])
+                            # 단락 요소 찾기
+                            paragraphs = article.find_elements(By.XPATH, ".//p")
+                            if paragraphs:
+                                content = "\n".join([p.text.strip() for p in paragraphs])
+                            else:
+                                # 텍스트가 있는 div 요소 찾기
+                                text_divs = article.find_elements(By.XPATH, ".//div[string-length(normalize-space(text())) > 5]")
+                                if text_divs:
+                                    content = "\n".join([div.text.strip() for div in text_divs if div.text.strip() != title])
                     except:
                         content = "내용을 추출할 수 없습니다."
                     
-                    # 이미 존재하는 제목인지 확인
-                    if title not in existing_titles:
-                        new_items.append({
+                    # 내용이 없으면 제목으로 대체
+                    if not content:
+                        content = f"제목: {title}"
+                    
+                    # 새 항목 추가
+                    if title not in existing_titles and title != "제목 없음":
+                        new_item = {
                             '제목': title,
-                            '구분': '업데이트',
+                            '구분': 'Meta Ads',
                             '작성일': date_str,  # 표준화된 날짜 형식(YYYY-MM-DD)
                             '링크': link,
-                            '내용': content
-                        })
+                            '내용': content,
+                            '출처': 'official site'  # 출처 정보 추가
+                        }
+                        print(f"새 항목 발견: {title}, 날짜: {date_str}")
+                        new_items.append(new_item)
                         existing_titles.append(title)
                 except Exception as e:
+                    print(f"항목 처리 중 오류: {str(e)}")
                     logging.error(f"항목 처리 중 오류: {str(e)}")
             
             # 새로운 항목이 있으면 시트에 추가
             if new_items:
                 # 기존 데이터가 없으면 헤더 추가
                 if not existing_data:
-                    sheet.append_row(['제목', '구분', '작성일', '링크', '내용', '요약'])
+                    headers = ['제목', '구분', '작성일', '링크', '출처', '내용', '요약', '최종수정일']
+                    sheet.append_row(headers)
                 
                 # 새 항목 역순으로 추가 (최신 항목이 위에 오도록)
                 for item in reversed(new_items):
-                    sheet.append_row([
+                    current_date = datetime.now().strftime("%Y-%m-%d")
+                    row = [
                         item['제목'],
                         item['구분'],
                         item['작성일'],
                         item['링크'],
+                        item['출처'],
                         item['내용'],
-                        ''  # 요약은 비워둠 (나중에 별도 스크립트로 처리)
-                    ])
+                        '',  # 요약은 비워둠
+                        current_date  # 최종수정일
+                    ]
+                    sheet.append_row(row)
                 
-                logging.info(f"{len(new_items)}개의 새로운 공지사항을 추가했습니다.")
+                print(f"{len(new_items)}개의 새로운 항목을 추가했습니다.")
+                logging.info(f"{len(new_items)}개의 새로운 항목을 추가했습니다.")
             else:
-                logging.info("새로운 공지사항이 없습니다.")
+                print("새로운 항목이 없습니다.")
+                logging.info("새로운 항목이 없습니다.")
+                
         except Exception as e:
+            print(f"검색 또는 결과 처리 중 오류: {str(e)}")
             logging.error(f"검색 또는 결과 처리 중 오류: {str(e)}")
             driver.save_screenshot(f"screenshots/meta_ads_error_{now}.png")
+            
     except Exception as e:
+        print(f"페이지 접속 또는 크롤링 중 오류: {str(e)}")
         logging.error(f"페이지 접속 또는 크롤링 중 오류: {str(e)}")
     finally:
         driver.quit()
