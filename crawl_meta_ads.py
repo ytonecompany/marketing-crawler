@@ -161,6 +161,10 @@ def crawl_meta_ads(sheet):
         # 사용자 에이전트 설정 - 일반 브라우저처럼 보이게 함
         chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36')
         
+        # 한국어로 설정
+        chrome_options.add_argument('--lang=ko-KR')
+        chrome_options.add_experimental_option('prefs', {'intl.accept_languages': 'ko-KR,ko'})
+        
         # 브라우저 시작
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=chrome_options)
@@ -169,13 +173,28 @@ def crawl_meta_ads(sheet):
         driver.set_page_load_timeout(60)
         wait = WebDriverWait(driver, 20)
         
-        # 메타 비즈니스 도움말 공지사항 페이지로 URL 변경
-        # 이전 URL: 'https://www.facebook.com/business/help/updates'
-        # 새로운 URL: 'https://www.facebook.com/business/news'
-        url = 'https://www.facebook.com/business/news'
+        # 메타 비즈니스 한국어 페이지로 URL 변경
+        # 이전 URL: 'https://www.facebook.com/business/news'
+        # 한국어 URL: 'https://www.facebook.com/business/news?locale=ko_KR'
+        url = 'https://www.facebook.com/business/news?locale=ko_KR'
         print(f"페이지 접속 시도: {url}")
         logging.info(f"페이지 접속 시도: {url}")
         driver.get(url)
+        
+        # 언어 전환이 제대로 됐는지 확인
+        try:
+            # 언어 선택 메뉴가 있다면 클릭하고 한국어 선택
+            language_selector = driver.find_element(By.XPATH, "//div[contains(@class, 'language-selector') or contains(@class, 'locale-selector')]")
+            driver.execute_script("arguments[0].click();", language_selector)
+            time.sleep(1)
+            korean_option = driver.find_element(By.XPATH, "//a[contains(text(), '한국어') or @data-locale='ko_KR']")
+            driver.execute_script("arguments[0].click();", korean_option)
+            time.sleep(2)
+            print("언어를 한국어로 변경했습니다.")
+            logging.info("언어를 한국어로 변경했습니다.")
+        except:
+            print("언어 선택기를 찾을 수 없거나 이미 한국어로 설정되어 있습니다.")
+            logging.info("언어 선택기를 찾을 수 없거나 이미 한국어로 설정되어 있습니다.")
         
         # 디버깅을 위해 페이지 소스 저장
         with open('page_source.html', 'w', encoding='utf-8') as f:
@@ -194,7 +213,7 @@ def crawl_meta_ads(sheet):
         try:
             # 쿠키 동의 버튼이 있으면 클릭
             try:
-                cookie_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Accept') or contains(text(), 'Allow') or contains(text(), '수락')]")))
+                cookie_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Accept') or contains(text(), 'Allow') or contains(text(), '수락') or contains(text(), '동의') or contains(text(), '확인')]")))
                 cookie_button.click()
                 print("쿠키 동의 버튼을 클릭했습니다.")
                 logging.info("쿠키 동의 버튼을 클릭했습니다.")
@@ -210,7 +229,7 @@ def crawl_meta_ads(sheet):
             try:
                 # 게시물 컨테이너를 찾습니다
                 article_elements = wait.until(EC.presence_of_all_elements_located((
-                    By.XPATH, "//div[contains(@class, 'news-item') or contains(@class, 'article') or contains(@class, 'card')]"
+                    By.XPATH, "//div[contains(@class, 'news-item') or contains(@class, 'article') or contains(@class, 'card') or contains(@class, '뉴스') or contains(@class, '공지')]"
                 )))
                 print(f"XPath로 {len(article_elements)}개의 뉴스 게시물을 찾았습니다.")
                 logging.info(f"XPath로 {len(article_elements)}개의 뉴스 게시물을 찾았습니다.")
@@ -223,16 +242,16 @@ def crawl_meta_ads(sheet):
                 try:
                     # 더 일반적인 구조의 게시물 컨테이너를 찾습니다
                     main_content = wait.until(EC.presence_of_element_located((
-                        By.XPATH, "//main | //div[@role='main'] | //div[contains(@class, 'content')]"
+                        By.XPATH, "//main | //div[@role='main'] | //div[contains(@class, 'content')] | //div[contains(@class, '콘텐츠')]"
                     )))
                     
                     # 메인 컨텐츠 내에서 각 뉴스 아이템이나 카드를 찾습니다
                     article_elements = main_content.find_elements(By.XPATH, 
-                        ".//div[contains(@class, 'item') or contains(@class, 'card') or contains(@class, 'post')]")
+                        ".//div[contains(@class, 'item') or contains(@class, 'card') or contains(@class, 'post') or contains(@class, '게시물') or contains(@class, '뉴스')]")
                     
                     if not article_elements or len(article_elements) == 0:
                         # 헤딩 요소를 기준으로 상위 컨테이너를 찾습니다
-                        headings = main_content.find_elements(By.XPATH, ".//h1 | .//h2 | .//h3")
+                        headings = main_content.find_elements(By.XPATH, ".//h1 | .//h2 | .//h3 | .//strong[contains(@class, 'title')]")
                         article_elements = []
                         for heading in headings:
                             try:
@@ -252,7 +271,7 @@ def crawl_meta_ads(sheet):
             if not article_elements or len(article_elements) == 0:
                 # 최종 시도: 페이지의 모든 링크와 타이틀 찾기
                 try:
-                    links = driver.find_elements(By.XPATH, "//a[.//h2 or .//h3 or .//span[@class='title']]")
+                    links = driver.find_elements(By.XPATH, "//a[.//h2 or .//h3 or .//span[@class='title'] or .//div[contains(text(), '더 알아보기')] or .//div[contains(text(), '읽어보기')]]")
                     if links and len(links) > 0:
                         article_elements = links
                         print(f"링크 요소로 {len(article_elements)}개의 게시물을 찾았습니다.")
@@ -295,11 +314,11 @@ def crawl_meta_ads(sheet):
                     # 제목 추출 시도
                     title_element = None
                     try:
-                        title_element = article.find_element(By.XPATH, ".//h2 | .//h3 | .//div[contains(@class, 'title')] | .//span[contains(@class, 'title')]")
+                        title_element = article.find_element(By.XPATH, ".//h2 | .//h3 | .//div[contains(@class, 'title')] | .//span[contains(@class, 'title')] | .//div[contains(@class, '제목')] | .//strong")
                     except:
                         try:
                             # 다른 가능한 제목 요소 찾기
-                            title_element = article.find_element(By.XPATH, ".//strong | .//b | .//a")
+                            title_element = article.find_element(By.XPATH, ".//strong | .//b | .//a | .//div[contains(@class, 'heading')]")
                         except:
                             # 요소가 텍스트를 직접 포함하는 경우
                             if article.text.strip():
@@ -324,9 +343,11 @@ def crawl_meta_ads(sheet):
                         # 다양한 날짜 패턴 확인
                         date_patterns = [
                             ".//time",
-                            ".//span[contains(text(), '/') or contains(text(), '-') or contains(text(), '년')]",
-                            ".//div[contains(@class, 'date') or contains(@class, 'time')]",
-                            ".//span[contains(@class, 'date') or contains(@class, 'time')]"
+                            ".//span[contains(text(), '/') or contains(text(), '-') or contains(text(), '년') or contains(text(), '.')]",
+                            ".//div[contains(@class, 'date') or contains(@class, 'time') or contains(@class, '날짜')]",
+                            ".//span[contains(@class, 'date') or contains(@class, 'time') or contains(@class, '날짜')]",
+                            ".//div[contains(text(), '년') and contains(text(), '월')]",
+                            ".//span[contains(text(), '년') and contains(text(), '월')]"
                         ]
                         
                         for pattern in date_patterns:
@@ -380,6 +401,11 @@ def crawl_meta_ads(sheet):
                                 text_divs = article.find_elements(By.XPATH, ".//div[string-length(normalize-space(text())) > 5]")
                                 if text_divs:
                                     content = "\n".join([div.text.strip() for div in text_divs if div.text.strip() != title])
+                                else:
+                                    # 설명 요소 찾기 (한국어 사이트에서 자주 사용)
+                                    desc_elements = article.find_elements(By.XPATH, ".//div[contains(@class, 'desc') or contains(@class, 'description') or contains(@class, '설명') or contains(@class, '내용')]")
+                                    if desc_elements:
+                                        content = "\n".join([desc.text.strip() for desc in desc_elements])
                     except:
                         content = "내용을 추출할 수 없습니다."
                     
@@ -456,6 +482,9 @@ def standardize_date(date_str):
             # 한국어 날짜 형식
             r'(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일',  # YYYY년 MM월 DD일
             r'(\d{2,4})[.-](\d{1,2})[.-](\d{1,2})',   # YYYY.MM.DD or YYYY-MM-DD
+            r'(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})',   # YYYY. MM. DD (한국어 사이트 날짜 형식)
+            r'(\d{4})\s*\.\s*(\d{1,2})\s*\.\s*(\d{1,2})',  # YYYY . MM . DD (공백 포함)
+            r'(\d{2})\.(\d{2})\.(\d{2})',  # YY.MM.DD
         ]
         
         # 영어 월 이름을 숫자로 변환하기 위한 사전
@@ -471,7 +500,11 @@ def standardize_date(date_str):
             'september': '09', 'sep': '09',
             'october': '10', 'oct': '10',
             'november': '11', 'nov': '11',
-            'december': '12', 'dec': '12'
+            'december': '12', 'dec': '12',
+            # 한국어 월 매핑 추가
+            '1월': '01', '2월': '02', '3월': '03', '4월': '04', 
+            '5월': '05', '6월': '06', '7월': '07', '8월': '08', 
+            '9월': '09', '10월': '10', '11월': '11', '12월': '12'
         }
         
         for pattern in patterns:
