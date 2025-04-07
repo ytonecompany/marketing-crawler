@@ -454,16 +454,27 @@ def standardize_date(date_str):
 
 # 메인 실행 부분
 if __name__ == "__main__":
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    logging.info(f"크롤링 시작: {current_time}")
+    
     try:
-        logging.info("크롤링 시작")
-        print(f"크롤링 시작: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        crawl_meta_ads()  # 메타 광고 크롤링 실행
-        print(f"크롤링 완료: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        logging.info("크롤링 완료")
+        # 스프레드시트 연결
+        SPREADSHEET_ID = '1shWpyaGrQF00YKkmYGftL2IAEOgmZ8kjw2s-WKbdyGg'
+        service_account_file = 'naver-452205-a733573ea425.json'
+        
+        # 스프레드시트 연결
+        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        credentials = ServiceAccountCredentials.from_json_keyfile_name(service_account_file, scope)
+        gc = gspread.authorize(credentials)
+        
+        # 스프레드시트 및 워크시트 열기
+        spreadsheet = gc.open_by_key(SPREADSHEET_ID)
+        sheet = spreadsheet.worksheet('Meta_Ads')
+        
+        # 크롤링 함수 호출 - sheet 인자 전달
+        crawl_meta_ads(sheet)
     except Exception as e:
-        error_msg = f"크롤링 중 오류 발생: {str(e)}"
-        print(error_msg)
-        logging.error(error_msg)
-        # 에러 로그 기록
-        with open(error_log_file, 'a') as f:
-            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Error: {str(e)}\n") 
+        logging.error(f"크롤링 중 오류 발생: {str(e)}")
+    
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    logging.info(f"크롤링 종료: {current_time}") 
