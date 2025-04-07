@@ -347,7 +347,10 @@ def crawl_meta_ads(sheet):
                             ".//div[contains(@class, 'date') or contains(@class, 'time') or contains(@class, '날짜')]",
                             ".//span[contains(@class, 'date') or contains(@class, 'time') or contains(@class, '날짜')]",
                             ".//div[contains(text(), '년') and contains(text(), '월')]",
-                            ".//span[contains(text(), '년') and contains(text(), '월')]"
+                            ".//span[contains(text(), '년') and contains(text(), '월')]",
+                            "//div[contains(text(), '[월]')]", # [월] - [2025년 4월 1일] 형식 추가
+                            "//div[contains(text(), '[FB]')]", # [FB] - [날짜] 형식 추가
+                            "ancestor::div//div[contains(text(), '[월]')]" # 상위 요소에서 [월] 패턴 찾기
                         ]
                         
                         for pattern in date_patterns:
@@ -355,9 +358,20 @@ def crawl_meta_ads(sheet):
                                 date_element = article.find_element(By.XPATH, pattern)
                                 date_str = date_element.text.strip()
                                 if date_str:
+                                    print(f"날짜 요소 발견: {date_str}")
                                     break
                             except:
                                 continue
+                        
+                        # 날짜가 발견되지 않았다면 페이지 전체에서 [월] 패턴 검색
+                        if not date_str:
+                            try:
+                                month_elements = driver.find_elements(By.XPATH, "//div[contains(text(), '[월]')] | //span[contains(text(), '[월]')]")
+                                if month_elements and len(month_elements) > 0:
+                                    date_str = month_elements[0].text.strip()
+                                    print(f"페이지 전체에서 발견한 월 패턴: {date_str}")
+                            except:
+                                pass
                         
                         # 날짜를 찾지 못한 경우 현재 날짜 사용
                         if not date_str:
@@ -365,8 +379,9 @@ def crawl_meta_ads(sheet):
                         else:
                             # 표준 형식으로 변환
                             date_str = standardize_date(date_str)
-                    except:
+                    except Exception as date_error:
                         # 날짜 추출 실패 시 현재 날짜 사용
+                        print(f"날짜 추출 중 오류: {str(date_error)}")
                         date_str = datetime.now().strftime("%Y-%m-%d")
                     
                     # 링크 추출 시도
@@ -472,6 +487,15 @@ def crawl_meta_ads(sheet):
 def standardize_date(date_str):
     """다양한 날짜 형식을 YYYY-MM-DD 형식으로 표준화"""
     try:
+        # [월] 또는 [FB] 형식 패턴 추출 (예: [월] - [2025년 4월 1일])
+        fb_pattern = r'\[월\]\s*-\s*\[(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일\]'
+        fb_match = re.search(fb_pattern, date_str)
+        if fb_match:
+            year, month, day = fb_match.groups()
+            month = month.zfill(2)
+            day = day.zfill(2)
+            return f"{year}-{month}-{day}"
+            
         # 연/월/일 패턴 찾기
         patterns = [
             # 영어 날짜 형식
