@@ -38,6 +38,11 @@ jobs:
         env:
           GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
 
+      - name: Run BOSS PDF crawler
+        run: python crawl_boss_pdf.py
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
       # 요약 스크립트 실행
       - name: Generate summaries
         run: python summary.py
