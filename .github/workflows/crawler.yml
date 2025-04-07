@@ -22,6 +22,10 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
+      - name: Create service account key file
+        run: |
+          echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT }}' > naver-452205-a733573ea425.json
+
       # 크롤링 스크립트 실행
       - name: Run Naver Ads crawler
         run: python crawl_naver_ads.py
