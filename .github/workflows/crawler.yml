@@ -49,10 +49,3 @@ jobs:
         env:
           GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-
-      # 메일 발송 스크립트 실행 (크롤링과 요약 후에 실행)
-      - name: Send email notifications
-        run: python mail.py
-        env:
-          GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
-          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
