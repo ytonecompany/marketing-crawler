@@ -2,7 +2,10 @@ name: Web Crawler and Notifier
 
 on:
   schedule:
-    - cron: '0 1 * * *'  # 매일 UTC 1시(한국 시간 10시)에 실행
+    - cron: '0 1 * * *'   # 매일 UTC 1시(한국 시간 10시)에 실행
+    - cron: '0 5 * * *'   # 매일 UTC 5시(한국 시간 14시)에 실행
+    - cron: '0 7 * * *'   # 매일 UTC 7시(한국 시간 16시)에 실행
+    - cron: '0 9 * * *'   # 매일 UTC 9시(한국 시간 18시)에 실행
   workflow_dispatch:      # 수동 실행 옵션
 
 jobs:
