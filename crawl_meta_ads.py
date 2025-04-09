@@ -22,6 +22,12 @@ import os
 
 import logging
 
+# 제외할 URL 목록 추가
+EXCLUDED_URLS = [
+    'https://www.facebook.com/business/updates-signup',
+    'https://www.facebook.com/business/news?locale=ko_KR'
+]
+
 # 환경 확인 (서버인지 로컬인지)
 IS_SERVER = os.path.exists('/home/hosting_users/ytonepd/www')
 
@@ -173,10 +179,8 @@ def crawl_meta_ads(sheet):
         driver.set_page_load_timeout(60)
         wait = WebDriverWait(driver, 20)
         
-        # 메타 비즈니스 한국어 페이지로 URL 변경
-        # 이전 URL: 'https://www.facebook.com/business/news'
-        # 한국어 URL: 'https://www.facebook.com/business/news?locale=ko_KR'
-        url = 'https://www.facebook.com/business/news?locale=ko_KR'
+        # 메타 비즈니스 뉴스 페이지
+        url = 'https://www.facebook.com/business/news'
         print(f"페이지 접속 시도: {url}")
         logging.info(f"페이지 접속 시도: {url}")
         driver.get(url)
@@ -298,8 +302,17 @@ def crawl_meta_ads(sheet):
             existing_data = sheet.get_all_records()
             existing_titles = [item.get('제목', '') for item in existing_data]
             
+            # 기존 데이터의 URL을 기준으로 항목 검색 가능하도록 맵 생성
+            existing_url_map = {}
+            row_index_map = {}
+            for i, item in enumerate(existing_data):
+                if '링크' in item and item['링크']:
+                    existing_url_map[item['링크']] = item
+                    row_index_map[item['링크']] = i + 2  # +2는 헤더행(1)과 0-인덱스를 1-인덱스로 변환하기 위함
+            
             # 새로운 공지사항 항목 처리
             new_items = []
+            updated_items = []
             
             for article in article_elements[:20]:  # 최신 20개 항목만 처리
                 try:
@@ -337,53 +350,6 @@ def crawl_meta_ads(sheet):
                         print(f"유효하지 않은 제목 건너뜀: {title}")
                         continue
                     
-                    # 날짜 추출 시도
-                    date_str = ""
-                    try:
-                        # 다양한 날짜 패턴 확인
-                        date_patterns = [
-                            ".//time",
-                            ".//span[contains(text(), '/') or contains(text(), '-') or contains(text(), '년') or contains(text(), '.')]",
-                            ".//div[contains(@class, 'date') or contains(@class, 'time') or contains(@class, '날짜')]",
-                            ".//span[contains(@class, 'date') or contains(@class, 'time') or contains(@class, '날짜')]",
-                            ".//div[contains(text(), '년') and contains(text(), '월')]",
-                            ".//span[contains(text(), '년') and contains(text(), '월')]",
-                            "//div[contains(text(), '[월]')]", # [월] - [2025년 4월 1일] 형식 추가
-                            "//div[contains(text(), '[FB]')]", # [FB] - [날짜] 형식 추가
-                            "ancestor::div//div[contains(text(), '[월]')]" # 상위 요소에서 [월] 패턴 찾기
-                        ]
-                        
-                        for pattern in date_patterns:
-                            try:
-                                date_element = article.find_element(By.XPATH, pattern)
-                                date_str = date_element.text.strip()
-                                if date_str:
-                                    print(f"날짜 요소 발견: {date_str}")
-                                    break
-                            except:
-                                continue
-                        
-                        # 날짜가 발견되지 않았다면 페이지 전체에서 [월] 패턴 검색
-                        if not date_str:
-                            try:
-                                month_elements = driver.find_elements(By.XPATH, "//div[contains(text(), '[월]')] | //span[contains(text(), '[월]')]")
-                                if month_elements and len(month_elements) > 0:
-                                    date_str = month_elements[0].text.strip()
-                                    print(f"페이지 전체에서 발견한 월 패턴: {date_str}")
-                            except:
-                                pass
-                        
-                        # 날짜를 찾지 못한 경우 현재 날짜 사용
-                        if not date_str:
-                            date_str = datetime.now().strftime("%Y-%m-%d")
-                        else:
-                            # 표준 형식으로 변환
-                            date_str = standardize_date(date_str)
-                    except Exception as date_error:
-                        # 날짜 추출 실패 시 현재 날짜 사용
-                        print(f"날짜 추출 중 오류: {str(date_error)}")
-                        date_str = datetime.now().strftime("%Y-%m-%d")
-                    
                     # 링크 추출 시도
                     link = ""
                     try:
@@ -397,6 +363,93 @@ def crawl_meta_ads(sheet):
                     except:
                         # 링크를 찾지 못한 경우 기본 URL 사용
                         link = url
+                    
+                    # 제외할 URL 목록에 있는 링크는 건너뜀
+                    if any(excluded_url in link for excluded_url in EXCLUDED_URLS):
+                        print(f"제외 목록에 있는 URL 건너뜀: {link}")
+                        continue
+                    
+                    # 날짜 추출 시도
+                    date_str = ""
+                    try:
+                        # 특정 URL에 대한 날짜 패턴 확인 - new-creator-marketing-tools URL 특별 처리
+                        if "new-creator-marketing-tools" in link:
+                            try:
+                                # 페이지 전체에서 [March 25, 2025] 형식 찾기
+                                date_elements = driver.find_elements(By.XPATH, "//span[contains(text(), '[March') or contains(text(), '[March')]")
+                                if not date_elements or len(date_elements) == 0:
+                                    # 다른 패턴으로 시도
+                                    date_elements = driver.find_elements(By.XPATH, "//*[contains(text(), '[2025') and contains(text(), '월') and contains(text(), '일]')]")
+                                
+                                if date_elements and len(date_elements) > 0:
+                                    date_str = date_elements[0].text.strip()
+                                    print(f"특별 패턴으로 찾은 날짜: {date_str}")
+                                    
+                                    # 특별 패턴으로 날짜를 찾지 못했을 경우 직접 세팅 (2025년 3월 25일)
+                                    if not date_str:
+                                        date_str = "2025-03-25"
+                                        print(f"new-creator-marketing-tools 페이지에 대해 직접 날짜 설정: {date_str}")
+                                else:
+                                    # 직접 세팅
+                                    date_str = "2025-03-25"
+                                    print(f"new-creator-marketing-tools 페이지에 대해 직접 날짜 설정: {date_str}")
+                            except:
+                                # 실패하면 직접 날짜 설정
+                                date_str = "2025-03-25"
+                                print(f"new-creator-marketing-tools 페이지에 대해 직접 날짜 설정: {date_str}")
+                        else:
+                            # 다양한 날짜 패턴 확인
+                            date_patterns = [
+                                ".//time",
+                                ".//span[contains(text(), '/') or contains(text(), '-') or contains(text(), '년') or contains(text(), '.')]",
+                                ".//div[contains(@class, 'date') or contains(@class, 'time') or contains(@class, '날짜')]",
+                                ".//span[contains(@class, 'date') or contains(@class, 'time') or contains(@class, '날짜')]",
+                                ".//div[contains(text(), '년') and contains(text(), '월')]",
+                                ".//span[contains(text(), '년') and contains(text(), '월')]",
+                                "//div[contains(text(), '[월]')]", # [월] - [2025년 4월 1일] 형식 추가
+                                "//div[contains(text(), '[FB]')]", # [FB] - [날짜] 형식 추가
+                                "ancestor::div//div[contains(text(), '[월]')]", # 상위 요소에서 [월] 패턴 찾기
+                                "//span[contains(text(), '[March')]", # [March 25, 2025] 형식 추가
+                                "//div[contains(text(), '[March')]"  # [March 25, 2025] 형식 추가
+                            ]
+                            
+                            for pattern in date_patterns:
+                                try:
+                                    date_element = article.find_element(By.XPATH, pattern)
+                                    date_str = date_element.text.strip()
+                                    if date_str:
+                                        print(f"날짜 요소 발견: {date_str}")
+                                        break
+                                except:
+                                    continue
+                            
+                            # 날짜가 발견되지 않았다면 페이지 전체에서 패턴 검색
+                            if not date_str:
+                                try:
+                                    # 한글 날짜 패턴
+                                    month_elements = driver.find_elements(By.XPATH, "//div[contains(text(), '[월]')] | //span[contains(text(), '[월]')]")
+                                    if month_elements and len(month_elements) > 0:
+                                        date_str = month_elements[0].text.strip()
+                                        print(f"페이지 전체에서 발견한 월 패턴: {date_str}")
+                                    else:
+                                        # 영문 날짜 패턴
+                                        eng_month_elements = driver.find_elements(By.XPATH, "//span[contains(text(), '[March')] | //div[contains(text(), '[March')]")
+                                        if eng_month_elements and len(eng_month_elements) > 0:
+                                            date_str = eng_month_elements[0].text.strip()
+                                            print(f"페이지 전체에서 발견한 영문 날짜 패턴: {date_str}")
+                                except:
+                                    pass
+                            
+                            # 날짜를 찾지 못한 경우 현재 날짜 사용
+                            if not date_str:
+                                date_str = datetime.now().strftime("%Y-%m-%d")
+                            else:
+                                # 표준 형식으로 변환
+                                date_str = standardize_date(date_str)
+                    except Exception as date_error:
+                        # 날짜 추출 실패 시 현재 날짜 사용
+                        print(f"날짜 추출 중 오류: {str(date_error)}")
+                        date_str = datetime.now().strftime("%Y-%m-%d")
                     
                     # 내용 추출 시도
                     content = ""
@@ -428,18 +481,47 @@ def crawl_meta_ads(sheet):
                     if not content:
                         content = f"제목: {title}"
                     
-                    # 새 항목 추가
-                    if title not in existing_titles and title != "제목 없음":
-                        new_item = {
-                            '제목': title,
-                            '구분': 'Meta Ads',
-                            '작성일': date_str,  # 표준화된 날짜 형식(YYYY-MM-DD)
-                            '링크': link,
-                            '내용': content,
-                            '출처': 'official site'  # 출처 정보 추가
-                        }
+                    # 새 항목 추가 또는 기존 항목 업데이트
+                    if title == "제목 없음":
+                        print(f"유효하지 않은 제목 건너뜀: {title}")
+                        continue
+
+                    # 새 항목 생성
+                    item_data = {
+                        '제목': title,
+                        '구분': 'Meta Ads',
+                        '작성일': date_str,  # 표준화된 날짜 형식(YYYY-MM-DD)
+                        '링크': link,
+                        '내용': content,
+                        '출처': 'official site'  # 출처 정보 추가
+                    }
+                    
+                    # 기존 항목이 있는지 확인
+                    if link in existing_url_map:
+                        # 링크가 동일한 기존 항목 있음 - 날짜 업데이트 확인
+                        existing_item = existing_url_map[link]
+                        existing_date = existing_item.get('작성일', '')
+                        
+                        # "new-creator-marketing-tools" 링크를 포함하는 항목은 날짜를 항상 업데이트
+                        if "new-creator-marketing-tools" in link:
+                            print(f"마케팅 도구 글 날짜 업데이트: {title}, {existing_date} -> {date_str}")
+                            
+                            # 시트에서 해당 항목 행 업데이트
+                            row_index = row_index_map[link]
+                            sheet.update_cell(row_index, 3, date_str)  # 작성일 열 업데이트
+                            updated_items.append(item_data)
+                        # 기존 날짜가 현재 날짜인 경우만 업데이트 (일반 항목)
+                        elif existing_date == datetime.now().strftime("%Y-%m-%d"):
+                            print(f"기존 항목 날짜 업데이트: {title}, {existing_date} -> {date_str}")
+                            
+                            # 시트에서 해당 항목 행 업데이트
+                            row_index = row_index_map[link]
+                            sheet.update_cell(row_index, 3, date_str)  # 작성일 열 업데이트
+                            updated_items.append(item_data)
+                    elif title not in existing_titles:
+                        # 새 항목 추가
                         print(f"새 항목 발견: {title}, 날짜: {date_str}")
-                        new_items.append(new_item)
+                        new_items.append(item_data)
                         existing_titles.append(title)
                 except Exception as e:
                     print(f"항목 처리 중 오류: {str(e)}")
@@ -473,6 +555,10 @@ def crawl_meta_ads(sheet):
                 print("새로운 항목이 없습니다.")
                 logging.info("새로운 항목이 없습니다.")
                 
+            if updated_items:
+                print(f"{len(updated_items)}개의 항목의 날짜를 업데이트했습니다.")
+                logging.info(f"{len(updated_items)}개의 항목의 날짜를 업데이트했습니다.")
+                
         except Exception as e:
             print(f"검색 또는 결과 처리 중 오류: {str(e)}")
             logging.error(f"검색 또는 결과 처리 중 오류: {str(e)}")
@@ -487,6 +573,9 @@ def crawl_meta_ads(sheet):
 def standardize_date(date_str):
     """다양한 날짜 형식을 YYYY-MM-DD 형식으로 표준화"""
     try:
+        # 디버깅을 위한 원본 날짜 출력
+        print(f"표준화 처리 전 날짜 문자열: '{date_str}'")
+        
         # [월] 또는 [FB] 형식 패턴 추출 (예: [월] - [2025년 4월 1일])
         fb_pattern = r'\[월\]\s*-\s*\[(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일\]'
         fb_match = re.search(fb_pattern, date_str)
@@ -494,6 +583,54 @@ def standardize_date(date_str):
             year, month, day = fb_match.groups()
             month = month.zfill(2)
             day = day.zfill(2)
+            return f"{year}-{month}-{day}"
+        
+        # [March 25, 2025] 형식 패턴 추가 - 대괄호가 있는 경우
+        eng_month_pattern = r'\[([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})\]'
+        eng_month_match = re.search(eng_month_pattern, date_str)
+        if eng_month_match:
+            month_name, day, year = eng_month_match.groups()
+            month_dict = {
+                'january': '01', 'jan': '01',
+                'february': '02', 'feb': '02',
+                'march': '03', 'mar': '03',
+                'april': '04', 'apr': '04',
+                'may': '05',
+                'june': '06', 'jun': '06',
+                'july': '07', 'jul': '07',
+                'august': '08', 'aug': '08',
+                'september': '09', 'sep': '09',
+                'october': '10', 'oct': '10',
+                'november': '11', 'nov': '11',
+                'december': '12', 'dec': '12'
+            }
+            month = month_dict.get(month_name.lower(), '01')
+            day = day.zfill(2)
+            print(f"[March 25, 2025] 패턴 인식 - 변환 결과: {year}-{month}-{day}")
+            return f"{year}-{month}-{day}"
+            
+        # March 25, 2025 형식 패턴 추가 - 대괄호가 없는 경우
+        eng_month_pattern2 = r'([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})'
+        eng_month_match2 = re.search(eng_month_pattern2, date_str)
+        if eng_month_match2:
+            month_name, day, year = eng_month_match2.groups()
+            month_dict = {
+                'january': '01', 'jan': '01',
+                'february': '02', 'feb': '02',
+                'march': '03', 'mar': '03',
+                'april': '04', 'apr': '04',
+                'may': '05',
+                'june': '06', 'jun': '06',
+                'july': '07', 'jul': '07',
+                'august': '08', 'aug': '08',
+                'september': '09', 'sep': '09',
+                'october': '10', 'oct': '10',
+                'november': '11', 'nov': '11',
+                'december': '12', 'dec': '12'
+            }
+            month = month_dict.get(month_name.lower(), '01')
+            day = day.zfill(2)
+            print(f"March 25, 2025 패턴 인식 - 변환 결과: {year}-{month}-{day}")
             return f"{year}-{month}-{day}"
             
         # 연/월/일 패턴 찾기
@@ -573,6 +710,47 @@ def standardize_date(date_str):
         logging.error(f"날짜 변환 중 오류: {str(e)}")
         return datetime.now().strftime("%Y-%m-%d")
 
+# 개별 URL에 대한 날짜 처리 기능 추가
+def update_specific_item_dates(sheet):
+    """특정 URL 항목의 날짜를 수동으로 업데이트"""
+    try:
+        print("특정 항목의 날짜 업데이트 시작...")
+        logging.info("특정 항목의 날짜 업데이트 시작...")
+        
+        # 스프레드시트에서 모든 데이터 가져오기
+        all_data = sheet.get_all_records()
+        
+        # 특정 URL과 원하는 날짜 매핑
+        specific_url_dates = {
+            'https://www.facebook.com/business/news/new-creator-marketing-tools-to-grow-your-business': '2025-03-25'
+        }
+        
+        # 각 행 검사
+        count = 0
+        for i, row in enumerate(all_data):
+            row_index = i + 2  # 헤더(1) + 0-인덱스 보정
+            
+            if '링크' in row and row['링크'] in specific_url_dates:
+                url = row['링크']
+                correct_date = specific_url_dates[url]
+                current_date = row.get('작성일', '')
+                
+                # 날짜가 다른 경우에만 업데이트
+                if current_date != correct_date:
+                    print(f"수동 날짜 업데이트: 행 {row_index}, URL: {url}")
+                    print(f"  - 현재 날짜: {current_date} -> 새 날짜: {correct_date}")
+                    
+                    # 날짜 열(3번째 열) 업데이트
+                    sheet.update_cell(row_index, 3, correct_date)
+                    count += 1
+        
+        print(f"날짜 수동 업데이트 완료: {count}개 항목 처리됨")
+        logging.info(f"날짜 수동 업데이트 완료: {count}개 항목 처리됨")
+        
+    except Exception as e:
+        print(f"날짜 수동 업데이트 중 오류: {str(e)}")
+        logging.error(f"날짜 수동 업데이트 중 오류: {str(e)}")
+
 # 메인 실행 부분
 if __name__ == "__main__":
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -586,6 +764,10 @@ if __name__ == "__main__":
         try:
             sheet = setup_google_sheets()
             print("스프레드시트 연결 성공")
+            
+            # 특정 항목 날짜 수동 업데이트 실행
+            update_specific_item_dates(sheet)
+            
             # 크롤링 함수 호출 - sheet 인자 전달
             crawl_meta_ads(sheet)
         except Exception as sheet_error:
