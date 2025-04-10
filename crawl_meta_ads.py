@@ -25,7 +25,9 @@ import logging
 # 제외할 URL 목록 추가
 EXCLUDED_URLS = [
     'https://www.facebook.com/business/updates-signup',
-    'https://www.facebook.com/business/news?locale=ko_KR'
+    'https://www.facebook.com/business/news?locale=ko_KR',
+    'https://www.facebook.com/business/news',
+    'https://www.facebook.com/business/m/updates-signup?ref=fbb_ens'
 ]
 
 # 환경 확인 (서버인지 로컬인지)
