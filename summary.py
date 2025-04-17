@@ -40,6 +40,8 @@ SPREADSHEET_ID = '1shWpyaGrQF00YKkmYGftL2IAEOgmZ8kjw2s-WKbdyGg'
 SHEET_NAMES = ['Naver_Ads', 'Google_Ads', 'Meta_Ads', 'Boss_pdf', 'Boss_pdf2']
 # 30년차 조언이 필요한 시트 목록
 ADVICE_SHEET_NAMES = ['Naver_Ads', 'Google_Ads', 'Meta_Ads']
+# 추가 의견이 필요한 시트 목록
+ADDITIONAL_ADVICE_SHEET_NAMES = ['Naver_Ads', 'Google_Ads', 'Meta_Ads']
 
 def setup_google_sheets():
     # 필요한 모든 스코프 추가
@@ -196,6 +198,86 @@ def generate_expert_advice(content, summary=None):
         print(f"조언 생성 중 오류 발생: {str(e)}")
         return "조언 생성 중 오류가 발생했습니다."
 
+def generate_importance_and_actions(content, summary=None):
+    """OpenAI API를 사용하여 변경 개요의 중요성과 실무 적용 제언 생성"""
+    if not content:
+        return "", ""
+    
+    try:
+        client = OpenAI(api_key=api_key)
+        
+        # 원본 내용과 요약(있는 경우)을 합쳐서 조언 생성 요청
+        input_text = f"원본 내용:\n{content}\n"
+        if summary:
+            input_text += f"\n요약:\n{summary}\n"
+        
+        # 변경 개요의 중요성 생성
+        importance_response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": """당신은 디지털 마케팅과 광고 플랫폼에 대한 전문가입니다. 
+광고 플랫폼의 변경사항이나 공지사항을 보고 해당 변경이 왜 중요한지 명확하게 설명해주세요.
+
+다음 내용에 대해 '본 공지(변경사항)이 왜 중요한가?'라는 질문에 답변해주세요:
+- 이 변경이 마케터/광고주에게 미치는 영향
+- 이 변경의 잠재적인 긍정적/부정적 측면
+- 무시할 경우 발생할 수 있는 결과
+
+답변은 명확하고 간결하게 작성하되, 실무자가 이해하기 쉽도록 작성해주세요.
+전체 내용은 200자 이내로 제한하고, 모든 문장이 완전하게 끝나도록 해주세요."""},
+                {"role": "user", "content": input_text}
+            ],
+            max_tokens=200,
+            temperature=0.5
+        )
+        
+        # 실무 적용 제언 생성
+        actions_response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": """당신은 디지털 마케팅과 광고 플랫폼에 대한 전문가입니다.
+광고 플랫폼의 변경사항이나 공지사항을 보고 마케터가 지금 당장 취해야 할 행동을 제안해주세요.
+
+다음 내용에 대해 '마케터가 지금 해야 할 일'을 구체적으로 제안해주세요:
+- 실무에 바로 적용할 수 있는 명확한 행동 단계
+- 우선순위와 함께 제시된 구체적인 액션 아이템
+- 실행 가능한 체크리스트 형태의 조언
+
+답변은 행동 지향적으로 작성하고, 실무자가 바로 실행할 수 있도록 구체적으로 작성해주세요.
+전체 내용은 200자 이내로 제한하고, 모든 문장이 완전하게 끝나도록 해주세요."""},
+                {"role": "user", "content": input_text}
+            ],
+            max_tokens=200,
+            temperature=0.5
+        )
+        
+        importance = importance_response.choices[0].message.content.strip()
+        actions = actions_response.choices[0].message.content.strip()
+        
+        # 문장이 중간에 끊기지 않았는지 확인
+        for text in [importance, actions]:
+            if text and not text.endswith(('.', '!', '?', '다.', '요.', '임.', '됨.')):
+                last_period_index = max(
+                    text.rfind('.'), 
+                    text.rfind('다.'), 
+                    text.rfind('요.'),
+                    text.rfind('임.'),
+                    text.rfind('됨.'),
+                    text.rfind('!'),
+                    text.rfind('?')
+                )
+                if last_period_index > 0:
+                    if text == importance:
+                        importance = text[:last_period_index+1]
+                    else:
+                        actions = text[:last_period_index+1]
+        
+        return importance, actions
+    
+    except Exception as e:
+        print(f"추가 의견 생성 중 오류 발생: {str(e)}")
+        return "의견 생성 중 오류가 발생했습니다.", "의견 생성 중 오류가 발생했습니다."
+
 def setup_advice_column(sheet):
     """'30년차' 열 설정"""
     try:
@@ -212,6 +294,48 @@ def setup_advice_column(sheet):
     
     except Exception as e:
         print(f"{sheet.title} 시트의 '30년차' 열 설정 중 오류 발생: {str(e)}")
+
+def setup_additional_columns(sheet):
+    """G열과 H열 사이에 신규 열 2개 추가"""
+    try:
+        # 헤더 가져오기
+        headers = sheet.row_values(1)
+        
+        # 두 개의 새로운 열 추가 (G열과 H열 사이)
+        new_columns = ["변경 개요의 중요성", "실무 적용 제언"]
+        
+        # 현재의 모든 데이터 가져오기
+        all_data = sheet.get_all_values()
+        
+        # 새로운 열이 없으면 추가
+        if len(headers) < 8 or headers[7] != "변경 개요의 중요성" or headers[8] != "실무 적용 제언":
+            print(f"{sheet.title} 시트에 신규 열 추가 중...")
+            
+            # 원래 H열 이후의 데이터를 임시 저장
+            h_column_index = 7  # 0-based index for H열
+            columns_after_h = []
+            
+            # 새 열과 원래 데이터 병합
+            updated_data = []
+            
+            for i, row in enumerate(all_data):
+                if i == 0:  # 헤더 행
+                    # 헤더 G까지 (0-6), 새 헤더 두 개, H부터 끝까지
+                    new_row = row[:7] + new_columns + row[7:]
+                else:  # 데이터 행
+                    # 빈 셀 두 개 추가 (G열 다음에)
+                    new_row = row[:7] + ["", ""] + row[7:]
+                
+                updated_data.append(new_row)
+            
+            # 전체 데이터 업데이트
+            sheet.update(updated_data)
+            print(f"{sheet.title} 시트에 신규 열 추가 완료")
+        else:
+            print(f"{sheet.title} 시트에는 이미 필요한 열이 있습니다.")
+            
+    except Exception as e:
+        print(f"{sheet.title} 시트의 신규 열 추가 중 오류 발생: {str(e)}")
 
 def process_sheet(sheet):
     """시트의 내용을 가져와서 요약이 필요한 항목 처리"""
@@ -321,6 +445,57 @@ def generate_missing_advice(sheet):
     
     return updated_count
 
+def generate_missing_additional_advice(sheet):
+    """추가 의견이 필요한 항목에 대해 변경 개요의 중요성과 실무 적용 제언 생성"""
+    if sheet.title not in ADDITIONAL_ADVICE_SHEET_NAMES:
+        return 0
+    
+    print(f"{sheet.title} 시트의 누락된 추가 의견 처리 중...")
+    
+    # 모든 데이터 가져오기
+    data = sheet.get_all_values()
+    
+    if len(data) <= 1:  # 헤더만 있는 경우
+        return 0
+    
+    # 헤더 제외한 데이터
+    rows = data[1:]
+    
+    # 추가 의견이 필요한 행 찾기 (내용과 요약은 있지만 추가 의견이 없는 경우)
+    rows_to_update = []
+    for i, row in enumerate(rows, start=2):
+        if len(row) >= 6 and row[4] and row[5]:  # 내용과 요약이 있고
+            if len(row) < 9 or (not row[7] or not row[8]):  # 추가 의견이 없는 경우
+                rows_to_update.append((i, row))
+    
+    print(f"추가 의견이 필요한 항목 수: {len(rows_to_update)}")
+    
+    # 추가 의견 처리
+    updated_count = 0
+    for row_idx, row in rows_to_update:
+        try:
+            content = row[4]  # E열이 내용 열
+            summary = row[5]  # F열이 요약 열
+            print(f"'{row[0]}' 추가 의견 생성 중...")
+            
+            # 변경 개요의 중요성과 실무 적용 제언 생성
+            importance, actions = generate_importance_and_actions(content, summary)
+            
+            # 결과 업데이트
+            sheet.update_cell(row_idx, 8, importance)  # 8번째 열(H열)이 변경 개요의 중요성 열
+            sheet.update_cell(row_idx, 9, actions)     # 9번째 열(I열)이 실무 적용 제언 열
+            
+            updated_count += 1
+            print(f"'{row[0]}' 추가 의견 생성 완료")
+            
+            # API 호출 제한 방지를 위한 대기
+            time.sleep(1)
+            
+        except Exception as e:
+            print(f"행 {row_idx} 추가 의견 생성 중 오류 발생: {str(e)}")
+    
+    return updated_count
+
 def run_summary():
     """모든 시트에 대해 요약 처리 실행"""
     try:
@@ -331,6 +506,7 @@ def run_summary():
         
         total_updated = 0
         total_advice = 0
+        total_additional_advice = 0
         
         # 각 시트 처리
         for sheet_name in SHEET_NAMES:
@@ -340,6 +516,10 @@ def run_summary():
                 # 30년차 조언이 필요한 시트에 '30년차' 열 설정
                 if sheet_name in ADVICE_SHEET_NAMES:
                     setup_advice_column(sheet)
+                
+                # 추가 의견이 필요한 시트에 신규 열 설정
+                if sheet_name in ADDITIONAL_ADVICE_SHEET_NAMES:
+                    setup_additional_columns(sheet)
                 
                 # 요약 및 조언 처리
                 updated = process_sheet(sheet)
@@ -351,11 +531,17 @@ def run_summary():
                     total_advice += advice_updated
                     print(f"{sheet_name} 시트 조언 처리 완료: {advice_updated}개 항목에 조언 추가됨")
                 
+                # 누락된 추가 의견 처리
+                if sheet_name in ADDITIONAL_ADVICE_SHEET_NAMES:
+                    additional_advice_updated = generate_missing_additional_advice(sheet)
+                    total_additional_advice += additional_advice_updated
+                    print(f"{sheet_name} 시트 추가 의견 처리 완료: {additional_advice_updated}개 항목에 추가 의견 생성됨")
+                
                 print(f"{sheet_name} 시트 처리 완료: {updated}개 항목 요약됨")
             except Exception as e:
                 print(f"{sheet_name} 시트 처리 중 오류 발생: {str(e)}")
         
-        print(f"총 {total_updated}개 항목 요약 완료, {total_advice}개 항목에 조언 추가 완료")
+        print(f"총 {total_updated}개 항목 요약 완료, {total_advice}개 항목에 조언 추가 완료, {total_additional_advice}개 항목에 추가 의견 생성 완료")
         
     except Exception as e:
         print(f"요약 프로그램 실행 중 오류 발생: {str(e)}")
