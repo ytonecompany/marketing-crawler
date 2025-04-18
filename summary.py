@@ -40,8 +40,8 @@ SPREADSHEET_ID = '1shWpyaGrQF00YKkmYGftL2IAEOgmZ8kjw2s-WKbdyGg'
 SHEET_NAMES = ['Naver_Ads', 'Google_Ads', 'Meta_Ads', 'Boss_pdf', 'Boss_pdf2']
 # 30년차 조언이 필요한 시트 목록
 ADVICE_SHEET_NAMES = ['Naver_Ads', 'Google_Ads', 'Meta_Ads']
-# 추가 의견이 필요한 시트 목록
-ADDITIONAL_ADVICE_SHEET_NAMES = ['Naver_Ads', 'Google_Ads', 'Meta_Ads']
+# 추가 의견이 필요한 시트 목록 - 비활성화됨 (빈 배열로 변경)
+ADDITIONAL_ADVICE_SHEET_NAMES = []
 
 def setup_google_sheets():
     # 필요한 모든 스코프 추가
@@ -517,7 +517,7 @@ def run_summary():
                 if sheet_name in ADVICE_SHEET_NAMES:
                     setup_advice_column(sheet)
                 
-                # 추가 의견이 필요한 시트에 신규 열 설정
+                # 추가 의견이 필요한 시트에 신규 열 설정 - 비활성화됨
                 if sheet_name in ADDITIONAL_ADVICE_SHEET_NAMES:
                     setup_additional_columns(sheet)
                 
@@ -531,7 +531,7 @@ def run_summary():
                     total_advice += advice_updated
                     print(f"{sheet_name} 시트 조언 처리 완료: {advice_updated}개 항목에 조언 추가됨")
                 
-                # 누락된 추가 의견 처리
+                # 누락된 추가 의견 처리 - 비활성화됨
                 if sheet_name in ADDITIONAL_ADVICE_SHEET_NAMES:
                     additional_advice_updated = generate_missing_additional_advice(sheet)
                     total_additional_advice += additional_advice_updated
