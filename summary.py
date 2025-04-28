@@ -40,8 +40,8 @@ SPREADSHEET_ID = '1shWpyaGrQF00YKkmYGftL2IAEOgmZ8kjw2s-WKbdyGg'
 SHEET_NAMES = ['Naver_Ads', 'Google_Ads', 'Meta_Ads', 'Boss_pdf', 'Boss_pdf2']
 # 30년차 조언이 필요한 시트 목록
 ADVICE_SHEET_NAMES = ['Naver_Ads', 'Google_Ads', 'Meta_Ads']
-# 추가 의견이 필요한 시트 목록 - 비활성화됨 (빈 배열로 변경)
-ADDITIONAL_ADVICE_SHEET_NAMES = []
+# 추가 의견이 필요한 시트 목록 - 빈 배열에서 필요한 시트로 변경
+ADDITIONAL_ADVICE_SHEET_NAMES = ['Naver_Ads', 'Google_Ads', 'Meta_Ads']
 
 def setup_google_sheets():
     # 필요한 모든 스코프 추가
