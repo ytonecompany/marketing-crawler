@@ -25,8 +25,6 @@ import logging
 # 제외할 URL 목록 추가
 EXCLUDED_URLS = [
     'https://www.facebook.com/business/updates-signup',
-    'https://www.facebook.com/business/news?locale=ko_KR',
-    'https://www.facebook.com/business/news',
     'https://www.facebook.com/business/m/updates-signup?ref=fbb_ens'
 ]
 
@@ -233,9 +231,9 @@ def crawl_meta_ads(sheet):
             
             # 첫 번째 방법: 비즈니스 뉴스 게시물 찾기
             try:
-                # 게시물 컨테이너를 찾습니다
+                # 게시물 컨테이너를 찾습니다 - 클래스 이름을 더 구체적으로 지정
                 article_elements = wait.until(EC.presence_of_all_elements_located((
-                    By.XPATH, "//div[contains(@class, 'news-item') or contains(@class, 'article') or contains(@class, 'card') or contains(@class, '뉴스') or contains(@class, '공지')]"
+                    By.XPATH, "//div[contains(@class, '_7rmt') and contains(@class, '_4sea')]"
                 )))
                 print(f"XPath로 {len(article_elements)}개의 뉴스 게시물을 찾았습니다.")
                 logging.info(f"XPath로 {len(article_elements)}개의 뉴스 게시물을 찾았습니다.")
@@ -376,75 +374,58 @@ def crawl_meta_ads(sheet):
                     try:
                         # 특정 URL에 대한 날짜 패턴 확인 - new-creator-marketing-tools URL 특별 처리
                         if "new-creator-marketing-tools" in link:
-                            try:
-                                # 페이지 전체에서 [March 25, 2025] 형식 찾기
-                                date_elements = driver.find_elements(By.XPATH, "//span[contains(text(), '[March') or contains(text(), '[March')]")
-                                if not date_elements or len(date_elements) == 0:
-                                    # 다른 패턴으로 시도
-                                    date_elements = driver.find_elements(By.XPATH, "//*[contains(text(), '[2025') and contains(text(), '월') and contains(text(), '일]')]")
-                                
-                                if date_elements and len(date_elements) > 0:
-                                    date_str = date_elements[0].text.strip()
-                                    print(f"특별 패턴으로 찾은 날짜: {date_str}")
-                                    
-                                    # 특별 패턴으로 날짜를 찾지 못했을 경우 직접 세팅 (2025년 3월 25일)
-                                    if not date_str:
-                                        date_str = "2025-03-25"
-                                        print(f"new-creator-marketing-tools 페이지에 대해 직접 날짜 설정: {date_str}")
-                                else:
-                                    # 직접 세팅
-                                    date_str = "2025-03-25"
-                                    print(f"new-creator-marketing-tools 페이지에 대해 직접 날짜 설정: {date_str}")
-                            except:
-                                # 실패하면 직접 날짜 설정
-                                date_str = "2025-03-25"
-                                print(f"new-creator-marketing-tools 페이지에 대해 직접 날짜 설정: {date_str}")
+                            # 직접 세팅
+                            date_str = "2025-03-25"
+                            print(f"new-creator-marketing-tools 페이지에 대해 직접 날짜 설정: {date_str}")
                         else:
-                            # 다양한 날짜 패턴 확인
-                            date_patterns = [
-                                ".//time",
-                                ".//span[contains(text(), '/') or contains(text(), '-') or contains(text(), '년') or contains(text(), '.')]",
-                                ".//div[contains(@class, 'date') or contains(@class, 'time') or contains(@class, '날짜')]",
-                                ".//span[contains(@class, 'date') or contains(@class, 'time') or contains(@class, '날짜')]",
-                                ".//div[contains(text(), '년') and contains(text(), '월')]",
-                                ".//span[contains(text(), '년') and contains(text(), '월')]",
-                                "//div[contains(text(), '[월]')]", # [월] - [2025년 4월 1일] 형식 추가
-                                "//div[contains(text(), '[FB]')]", # [FB] - [날짜] 형식 추가
-                                "ancestor::div//div[contains(text(), '[월]')]", # 상위 요소에서 [월] 패턴 찾기
-                                "//span[contains(text(), '[March')]", # [March 25, 2025] 형식 추가
-                                "//div[contains(text(), '[March')]"  # [March 25, 2025] 형식 추가
-                            ]
-                            
-                            for pattern in date_patterns:
+                            # 날짜 요소를 찾기 위한 XPath - Meta 웹사이트 구조에 맞게 최적화
+                            date_xpath = ".//div[contains(@class, '_7rmo')]"
+                            try:
+                                date_element = article.find_element(By.XPATH, date_xpath)
+                                date_text = date_element.text.strip()
+                                if date_text and ('년' in date_text or '월' in date_text):
+                                    date_str = date_text
+                                    print(f"날짜 요소 발견: {date_str}")
+                            except:
+                                # 추가 날짜 패턴 시도
                                 try:
-                                    date_element = article.find_element(By.XPATH, pattern)
-                                    date_str = date_element.text.strip()
-                                    if date_str:
-                                        print(f"날짜 요소 발견: {date_str}")
-                                        break
+                                    # 다양한 날짜 패턴 확인
+                                    date_patterns = [
+                                        ".//time",
+                                        ".//span[contains(text(), '년') and contains(text(), '월')]",
+                                        ".//div[contains(text(), '년') and contains(text(), '월')]",
+                                        ".//span[contains(@class, 'date')]",
+                                        ".//div[contains(@class, 'date')]"
+                                    ]
+                                    
+                                    for pattern in date_patterns:
+                                        try:
+                                            date_element = article.find_element(By.XPATH, pattern)
+                                            date_str = date_element.text.strip()
+                                            if date_str and ('년' in date_str or '월' in date_str or '-' in date_str):
+                                                print(f"날짜 요소 발견: {date_str}")
+                                                break
+                                        except:
+                                            continue
                                 except:
-                                    continue
+                                    pass
                             
-                            # 날짜가 발견되지 않았다면 페이지 전체에서 패턴 검색
-                            if not date_str:
+                            # 날짜를 찾지 못한 경우, 제목 요소 주변에서 형제 요소로 날짜 찾기 시도
+                            if not date_str and title_element:
                                 try:
-                                    # 한글 날짜 패턴
-                                    month_elements = driver.find_elements(By.XPATH, "//div[contains(text(), '[월]')] | //span[contains(text(), '[월]')]")
-                                    if month_elements and len(month_elements) > 0:
-                                        date_str = month_elements[0].text.strip()
-                                        print(f"페이지 전체에서 발견한 월 패턴: {date_str}")
-                                    else:
-                                        # 영문 날짜 패턴
-                                        eng_month_elements = driver.find_elements(By.XPATH, "//span[contains(text(), '[March')] | //div[contains(text(), '[March')]")
-                                        if eng_month_elements and len(eng_month_elements) > 0:
-                                            date_str = eng_month_elements[0].text.strip()
-                                            print(f"페이지 전체에서 발견한 영문 날짜 패턴: {date_str}")
+                                    # 제목 요소의 부모에서 날짜 관련 요소 찾기
+                                    parent = title_element.find_element(By.XPATH, "./..")
+                                    sibling_date = parent.find_element(By.XPATH, "./following-sibling::div[contains(text(), '년') or contains(text(), '월') or contains(@class, 'date')]")
+                                    if sibling_date:
+                                        date_str = sibling_date.text.strip()
+                                        print(f"제목 주변에서 날짜 발견: {date_str}")
                                 except:
                                     pass
                             
                             # 날짜를 찾지 못한 경우 현재 날짜 사용
                             if not date_str:
                                 date_str = datetime.now().strftime("%Y-%m-%d")
+                                print(f"날짜를 찾지 못해 현재 날짜 사용: {date_str}")
                             else:
                                 # 표준 형식으로 변환
                                 date_str = standardize_date(date_str)
@@ -486,6 +467,16 @@ def crawl_meta_ads(sheet):
                     # 새 항목 추가 또는 기존 항목 업데이트
                     if title == "제목 없음":
                         print(f"유효하지 않은 제목 건너뜀: {title}")
+                        continue
+                        
+                    # 제목이 너무 짧은 경우 건너뜀 (예: "뉴스", "카테고리" 등)
+                    if len(title) < 5:
+                        print(f"제목이 너무 짧아 건너뜀: {title}")
+                        continue
+                        
+                    # 날짜 형식이 없는 경우 건너뜀
+                    if date_str == datetime.now().strftime("%Y-%m-%d") and not '년' in article.text and not '월' in article.text:
+                        print(f"날짜 형식이 없어 건너뜀: {title}")
                         continue
 
                     # 새 항목 생성
