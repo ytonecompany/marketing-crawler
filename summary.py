@@ -247,7 +247,9 @@ def generate_importance_and_actions(content, summary=None):
 - 무시할 경우 발생할 수 있는 결과
 
 답변은 명확하고 간결하게 작성하되, 실무자가 이해하기 쉽도록 작성해주세요.
-전체 내용은 200자 이내로 제한하고, 모든 문장이 완전하게 끝나도록 해주세요."""},
+전체 내용은 200자 이내로 제한하고, 모든 문장이 완전하게 끝나도록 해주세요.
+
+중요: 답변에 날짜(예: 5월 22일, 2024년 등)를 포함하지 마세요. 시간적 표현 대신 변경사항의 본질적 중요성에 집중해주세요."""},
                     {"role": "user", "content": input_text}
                 ],
                 max_tokens=200,
@@ -267,7 +269,9 @@ def generate_importance_and_actions(content, summary=None):
 - 실행 가능한 체크리스트 형태의 조언
 
 답변은 행동 지향적으로 작성하고, 실무자가 바로 실행할 수 있도록 구체적으로 작성해주세요.
-전체 내용은 200자 이내로 제한하고, 모든 문장이 완전하게 끝나도록 해주세요."""},
+전체 내용은 200자 이내로 제한하고, 모든 문장이 완전하게 끝나도록 해주세요.
+
+중요: 답변에 날짜(예: 5월 22일, 2024년 등)를 포함하지 마세요. 시간적 표현 대신 즉시 실행 가능한 행동에 집중해주세요."""},
                     {"role": "user", "content": input_text}
                 ],
                 max_tokens=200,
@@ -588,11 +592,11 @@ def generate_missing_additional_advice(sheet):
     rows_to_update = []
     for i, row in enumerate(rows, start=2):
         if len(row) >= 6 and row[4] and row[5]:  # 내용과 요약이 있고
-            # 각 추가 의견 열이 없거나 비어있는지 개별적으로 확인
+            # H열 (변경 개요의 중요성)만 확인 - I열은 비활성화
             need_importance = len(row) < 8 or not row[7]  # H열 (변경 개요의 중요성)이 없거나 비어있음
-            need_actions = len(row) < 9 or not row[8]    # I열 (실무 적용 제언)이 없거나 비어있음
+            need_actions = False  # I열 (실무 적용 제언) 비활성화
             
-            if need_importance or need_actions:
+            if need_importance:  # 중요성만 확인
                 rows_to_update.append((i, row, need_importance, need_actions))
     
     print(f"추가 의견이 필요한 항목 수: {len(rows_to_update)}")
@@ -605,19 +609,16 @@ def generate_missing_additional_advice(sheet):
             summary = row[5]  # F열이 요약 열
             print(f"'{row[0]}' 추가 의견 생성 중... (중요성: {need_importance}, 제언: {need_actions})")
             
-            if need_importance and need_actions:
-                # 두 가지 모두 필요한 경우 한 번에 생성
-                importance, actions = generate_importance_and_actions(content, summary)
-                sheet.update_cell(row_idx, 8, importance)  # 8번째 열(H열)이 변경 개요의 중요성 열
-                sheet.update_cell(row_idx, 9, actions)     # 9번째 열(I열)이 실무 적용 제언 열
-            elif need_importance:
-                # 중요성만 필요한 경우
+            if need_importance:
+                # 중요성만 생성 (I열 실무 적용 제언은 비활성화)
                 importance, _ = generate_importance_and_actions(content, summary)
                 sheet.update_cell(row_idx, 8, importance)  # 8번째 열(H열)이 변경 개요의 중요성 열
-            elif need_actions:
-                # 제언만 필요한 경우
-                _, actions = generate_importance_and_actions(content, summary)
-                sheet.update_cell(row_idx, 9, actions)     # 9번째 열(I열)이 실무 적용 제언 열
+                print(f"'{row[0]}' 중요성만 생성 완료 (I열 제언은 비활성화됨)")
+            # elif need_actions 부분은 주석 처리 - I열 업데이트 비활성화
+            # elif need_actions:
+            #     # 제언만 필요한 경우
+            #     _, actions = generate_importance_and_actions(content, summary)
+            #     sheet.update_cell(row_idx, 9, actions)     # 9번째 열(I열)이 실무 적용 제언 열
             
             updated_count += 1
             print(f"'{row[0]}' 추가 의견 생성 완료")
@@ -651,7 +652,9 @@ def generate_missing_additional_advice(sheet):
 - 무시할 경우 발생할 수 있는 결과
 
 답변은 명확하고 간결하게 작성하되, 실무자가 이해하기 쉽도록 작성해주세요.
-전체 내용은 200자 이내로 제한하고, 모든 문장이 완전하게 끝나도록 해주세요."""},
+전체 내용은 200자 이내로 제한하고, 모든 문장이 완전하게 끝나도록 해주세요.
+
+중요: 답변에 날짜(예: 5월 22일, 2024년 등)를 포함하지 마세요. 시간적 표현 대신 변경사항의 본질적 중요성에 집중해주세요."""},
                             {"role": "user", "content": input_text}
                         ],
                         max_tokens=200,
@@ -662,35 +665,38 @@ def generate_missing_additional_advice(sheet):
                     print(f"'{row[0]}' 중요성 생성 완료 (재시도)")
                     time.sleep(1)
                 
-                if need_actions:
-                    print(f"'{row[0]}' 제언 항목 개별 재시도 중...")
-                    client = OpenAI(api_key=api_key)
-                    input_text = f"원본 내용:\n{content}\n"
-                    if summary:
-                        input_text += f"\n요약:\n{summary}\n"
-                    
-                    actions_response = client.chat.completions.create(
-                        model="gpt-3.5-turbo",
-                        messages=[
-                            {"role": "system", "content": """당신은 디지털 마케팅과 광고 플랫폼에 대한 전문가입니다.
-광고 플랫폼의 변경사항이나 공지사항을 보고 마케터가 지금 당장 취해야 할 행동을 제안해주세요.
-
-다음 내용에 대해 '마케터가 지금 해야 할 일'을 구체적으로 제안해주세요:
-- 실무에 바로 적용할 수 있는 명확한 행동 단계
-- 우선순위와 함께 제시된 구체적인 액션 아이템
-- 실행 가능한 체크리스트 형태의 조언
-
-답변은 행동 지향적으로 작성하고, 실무자가 바로 실행할 수 있도록 구체적으로 작성해주세요.
-전체 내용은 200자 이내로 제한하고, 모든 문장이 완전하게 끝나도록 해주세요."""},
-                            {"role": "user", "content": input_text}
-                        ],
-                        max_tokens=200,
-                        temperature=0.5
-                    )
-                    actions = actions_response.choices[0].message.content.strip()
-                    sheet.update_cell(row_idx, 9, actions)
-                    print(f"'{row[0]}' 제언 생성 완료 (재시도)")
-                    time.sleep(1)
+                # I열 실무 적용 제언 생성 비활성화
+                # if need_actions:
+                #     print(f"'{row[0]}' 제언 항목 개별 재시도 중...")
+                #     client = OpenAI(api_key=api_key)
+                #     input_text = f"원본 내용:\n{content}\n"
+                #     if summary:
+                #         input_text += f"\n요약:\n{summary}\n"
+                #     
+                #     actions_response = client.chat.completions.create(
+                #         model="gpt-3.5-turbo",
+                #         messages=[
+                #             {"role": "system", "content": """당신은 디지털 마케팅과 광고 플랫폼에 대한 전문가입니다.
+                # 광고 플랫폼의 변경사항이나 공지사항을 보고 마케터가 지금 당장 취해야 할 행동을 제안해주세요.
+                # 
+                # 다음 내용에 대해 '마케터가 지금 해야 할 일'을 구체적으로 제안해주세요:
+                # - 실무에 바로 적용할 수 있는 명확한 행동 단계
+                # - 우선순위와 함께 제시된 구체적인 액션 아이템
+                # - 실행 가능한 체크리스트 형태의 조언
+                # 
+                # 답변은 행동 지향적으로 작성하고, 실무자가 바로 실행할 수 있도록 구체적으로 작성해주세요.
+                # 전체 내용은 200자 이내로 제한하고, 모든 문장이 완전하게 끝나도록 해주세요.
+                # 
+                # 중요: 답변에 날짜(예: 5월 22일, 2024년 등)를 포함하지 마세요. 시간적 표현 대신 즉시 실행 가능한 행동에 집중해주세요."""},
+                #             {"role": "user", "content": input_text}
+                #         ],
+                #         max_tokens=200,
+                #         temperature=0.5
+                #     )
+                #     actions = actions_response.choices[0].message.content.strip()
+                #     sheet.update_cell(row_idx, 9, actions)
+                #     print(f"'{row[0]}' 제언 생성 완료 (재시도)")
+                #     time.sleep(1)
             
             except Exception as retry_error:
                 retry_error_msg = f"행 {row_idx} 추가 의견 개별 재시도 중 오류 발생: {str(retry_error)}"
@@ -761,24 +767,22 @@ def run_summary():
                     print(f"{sheet_name} 시트 추가 의견 처리 완료: {additional_advice_updated}개 항목에 추가 의견 생성됨")
                     logging.info(f"{sheet_name} 시트 추가 의견 처리 완료: {additional_advice_updated}개 항목에 추가 의견 생성됨")
                 
-                # 누락된 열 확인 (중요성과 제언)
+                # 누락된 열 확인 (중요성만 - I열 제언은 비활성화)
                 if sheet_name in ADDITIONAL_ADVICE_SHEET_NAMES:
                     all_data = sheet.get_all_values()
                     if len(all_data) > 1:  # 헤더 제외
                         rows = all_data[1:]
                         missing_importance = 0
-                        missing_actions = 0
                         
                         for row in rows:
                             if len(row) >= 5 and row[4]:  # 내용이 있을 때
                                 if len(row) < 8 or not row[7]:  # 중요성 누락
                                     missing_importance += 1
-                                if len(row) < 9 or not row[8]:  # 제언 누락
-                                    missing_actions += 1
+                                # I열 제언 누락 체크 비활성화
                         
-                        if missing_importance > 0 or missing_actions > 0:
-                            print(f"{sheet_name} 시트 완료 후 확인: 아직 중요성 누락 {missing_importance}개, 제언 누락 {missing_actions}개")
-                            logging.warning(f"{sheet_name} 시트 완료 후 확인: 아직 중요성 누락 {missing_importance}개, 제언 누락 {missing_actions}개")
+                        if missing_importance > 0:
+                            print(f"{sheet_name} 시트 완료 후 확인: 아직 중요성 누락 {missing_importance}개 (I열 제언은 비활성화됨)")
+                            logging.warning(f"{sheet_name} 시트 완료 후 확인: 아직 중요성 누락 {missing_importance}개 (I열 제언은 비활성화됨)")
                 
                 print(f"==== {sheet_name} 시트 처리 완료: {updated}개 항목 요약됨 ====\n")
                 logging.info(f"{sheet_name} 시트 처리 완료: {updated}개 항목 요약됨")
