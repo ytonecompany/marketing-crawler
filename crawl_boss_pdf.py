@@ -778,60 +778,39 @@ if __name__ == "__main__":
                     # 두 개의 시트에 데이터 추가하기 위한 함수 정의
                     def process_sheet_data(worksheet_title):
                         print(f"\n===== {worksheet_title} 시트 처리 시작 =====")
-                        if worksheet_title not in sheet_titles:
-                            print(f"{worksheet_title} 시트가 없어 새로 생성합니다")
-                            # 새 시트 추가 요청
-                            add_sheet_request = {
-                                "addSheet": {
-                                    "properties": {
-                                        "title": worksheet_title,
-                                        "gridProperties": {
-                                            "rowCount": 1000,
-                                            "columnCount": 10
-                                        }
-                                    }
-                                }
-                            }
-                            
-                            request_body = {
-                                'requests': [add_sheet_request]
-                            }
-                            
-                            service.spreadsheets().batchUpdate(
-                                spreadsheetId=current_spreadsheet_id,
-                                body=request_body
-                            ).execute()
-                            print(f"{worksheet_title} 시트 생성 완료")
-                            
-                            # 헤더 추가
-                            headers = [['제목', '작성일', '링크', 'PDF 링크', '내용', '중요여부', '파일명', '마지막 업데이트']]
-                            service.spreadsheets().values().update(
-                                spreadsheetId=current_spreadsheet_id,
-                                range=f"{worksheet_title}!A1:H1",
-                                valueInputOption="RAW",
-                                body={"values": headers}
-                            ).execute()
-                            print(f"{worksheet_title} 헤더 추가 완료")
                         
-                        # 현재 시트의 모든 데이터 가져오기
+                        # 시트 정보 가져오기
+                        sheet_info = next((sheet for sheet in sheets if sheet['properties']['title'] == worksheet_title), None)
+                        if not sheet_info:
+                            print(f"{worksheet_title} 시트를 찾을 수 없습니다.")
+                            return 0
+                        
+                        # sheet_id 가져오기
+                        sheet_id = sheet_info['properties']['sheetId']
+                        print(f"{worksheet_title} 시트 ID: {sheet_id}")
+                        
+                        # 현재 시트의 데이터 가져오기
                         result = service.spreadsheets().values().get(
                             spreadsheetId=current_spreadsheet_id,
                             range=f"{worksheet_title}!A:H"
                         ).execute()
                         
                         current_values = result.get('values', [])
-                        print(f"{worksheet_title} 시트에 {len(current_values)} 행의 데이터가 있습니다")
+                        if not current_values:
+                            print(f"{worksheet_title} - 시트가 비어있습니다. 헤더 추가...")
+                            headers = ['제목', '작성일', '링크', 'PDF 링크', '내용', '중요여부', '파일명', '마지막 업데이트']
+                            service.spreadsheets().values().update(
+                                spreadsheetId=current_spreadsheet_id,
+                                range=f"{worksheet_title}!A1:H1",
+                                valueInputOption="RAW",
+                                body={"values": [headers]}
+                            ).execute()
+                            current_values = [headers]
                         
-                        # 헤더 행 제외한 기존 데이터의 제목 목록 (중복 체크용)
-                        existing_titles = []
-                        if len(current_values) > 1:  # 헤더 제외
-                            for row in current_values[1:]:
-                                if row and len(row) > 0:
-                                    existing_titles.append(row[0])
+                        # 기존 제목 목록 가져오기 (중복 체크용)
+                        existing_titles = [row[0] for row in current_values[1:] if row]
                         
-                        print(f"{worksheet_title} 시트의 기존 항목 수: {len(existing_titles)}")
-                        
-                        # 새 데이터 준비
+                        # 새로운 데이터를 저장할 리스트
                         new_rows = []
                         new_data_count = 0
                         
@@ -877,23 +856,35 @@ if __name__ == "__main__":
                         if new_rows:
                             print(f"{worksheet_title} - {new_data_count}개의 새 항목을 추가합니다...")
                             
-                            # 새 행 시작 위치 계산
-                            start_row = len(current_values) + 1
-                            end_row = start_row + len(new_rows) - 1
+                            # 2번째 행에 새로운 행들을 삽입
+                            for row_data in reversed(new_rows):  # 역순으로 처리하여 순서 유지
+                                # 2번째 행에 빈 행 삽입
+                                request = {
+                                    'insertDimension': {
+                                        'range': {
+                                            'sheetId': sheet_id,
+                                            'dimension': 'ROWS',
+                                            'startIndex': 1,  # 2번째 행 (0-based index)
+                                            'endIndex': 2
+                                        }
+                                    }
+                                }
+                                
+                                service.spreadsheets().batchUpdate(
+                                    spreadsheetId=current_spreadsheet_id,
+                                    body={'requests': [request]}
+                                ).execute()
+                                
+                                # 삽입된 행에 데이터 입력
+                                update_range = f"{worksheet_title}!A2:H2"
+                                service.spreadsheets().values().update(
+                                    spreadsheetId=current_spreadsheet_id,
+                                    range=update_range,
+                                    valueInputOption="RAW",
+                                    body={"values": [row_data]}
+                                ).execute()
                             
-                            # 여러 행을 한 번에 추가
-                            batch_update_range = f"{worksheet_title}!A{start_row}:H{end_row}"
-                            print(f"{worksheet_title} - 업데이트 범위: {batch_update_range}")
-                            
-                            update_result = service.spreadsheets().values().update(
-                                spreadsheetId=current_spreadsheet_id,
-                                range=batch_update_range,
-                                valueInputOption="RAW",
-                                body={"values": new_rows}
-                            ).execute()
-                            
-                            print(f"{worksheet_title} - 업데이트 결과: {update_result}")
-                            print(f"{worksheet_title} - 스프레드시트 업데이트 완료: {new_data_count}개의 새 항목 추가됨")
+                            print(f"{worksheet_title} - 업데이트 완료: {new_data_count}개의 새 항목이 2번째 행에 추가됨")
                         else:
                             print(f"{worksheet_title} - 추가할 새 항목이 없습니다")
                         
