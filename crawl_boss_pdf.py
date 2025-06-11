@@ -228,87 +228,85 @@ def login_to_iboss(driver):
         driver.get(login_url)
         time.sleep(3)
         
+        # 현재 URL 로깅
+        current_url = driver.current_url
+        log_message(f"현재 페이지 URL: {current_url}")
+        
         try:
-            # 이메일 입력
+            # 이메일 입력 필드 대기 및 입력
             email_input = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='user_id']"))
             )
             email_input.clear()
+            time.sleep(1)
             email_input.send_keys("business@y-tone.co.kr")
             log_message("이메일 입력 완료")
             
             # 비밀번호 입력
-            password_input = driver.find_element(By.CSS_SELECTOR, "input[name='user_passwd']")
+            password_input = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='user_passwd']"))
+            )
             password_input.clear()
+            time.sleep(1)
             password_input.send_keys("ytonecompany1!")
             log_message("비밀번호 입력 완료")
             
-            # 로그인 버튼 활성화 및 클릭
-            login_button = driver.find_element(By.CSS_SELECTOR, "input[name='submit_OK']")
-            # disabled 속성 제거
-            driver.execute_script("arguments[0].removeAttribute('disabled')", login_button)
-            # 폼 제출
-            driver.execute_script("arguments[0].form.submit();", login_button)
-            log_message("로그인 폼 제출")
+            # 로그인 버튼 찾기 및 클릭
+            login_button = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='submit_OK']"))
+            )
             
-            # 로그인 완료 대기
+            # JavaScript로 클릭 이벤트 실행
+            driver.execute_script("arguments[0].click();", login_button)
+            log_message("로그인 버튼 클릭")
+            
+            # 로그인 후 페이지 로딩 대기
             time.sleep(5)
             
-            # 로그인 성공 확인
-            try:
-                # 로그인 후 표시되는 요소 확인 (여러 선택자 시도)
-                success_selectors = [
-                    ".user-menu",
-                    ".logout",
-                    ".mypage",
-                    ".member_info",
-                    "#member_info",
-                    "a[href*='logout']"
-                ]
-                
-                for selector in success_selectors:
-                    try:
-                        element = WebDriverWait(driver, 3).until(
-                            EC.presence_of_element_located((By.CSS_SELECTOR, selector))
-                        )
-                        log_message(f"로그인 성공 - {selector} 요소 발견")
-                        return True
-                    except:
-                        continue
-                
-                log_message("로그인 실패 - 사용자 메뉴를 찾을 수 없음")
-                # 현재 페이지의 HTML 구조 로깅
+            # 로그인 성공 여부 확인
+            success_indicators = [
+                "a[href*='logout']",  # 로그아웃 링크
+                ".user-menu",         # 사용자 메뉴
+                ".mypage",            # 마이페이지
+                "#member_info"        # 회원 정보
+            ]
+            
+            for indicator in success_indicators:
                 try:
-                    log_message("현재 페이지 HTML 구조:")
-                    log_message(f"페이지 제목: {driver.title}")
-                    log_message(f"현재 URL: {driver.current_url}")
+                    element = WebDriverWait(driver, 5).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, indicator))
+                    )
+                    log_message(f"로그인 성공 확인: {indicator} 요소 발견")
+                    
+                    # 로그인 후 URL 확인
+                    after_login_url = driver.current_url
+                    log_message(f"로그인 후 URL: {after_login_url}")
+                    
+                    return True
                 except:
-                    pass
-                return False
-                
-            except Exception as e:
-                log_message(f"로그인 상태 확인 중 오류: {str(e)}")
-                return False
-                
-        except Exception as e:
-            log_message(f"로그인 폼 작성 중 오류: {str(e)}")
-            # 현재 페이지의 HTML 구조 로깅
+                    continue
+            
+            # 로그인 실패 시 페이지 소스 확인
+            log_message("로그인 상태 확인 실패. 현재 페이지 정보:")
+            log_message(f"현재 URL: {driver.current_url}")
+            log_message(f"페이지 제목: {driver.title}")
+            
+            # 에러 메시지 확인
             try:
-                log_message("현재 페이지 HTML 구조:")
-                log_message(f"페이지 제목: {driver.title}")
-                log_message(f"현재 URL: {driver.current_url}")
-                # form 태그 찾기
-                forms = driver.find_elements(By.TAG_NAME, "form")
-                log_message(f"페이지 내 form 태그 수: {len(forms)}")
-                if forms:
-                    log_message("첫 번째 form의 HTML:")
-                    log_message(forms[0].get_attribute('outerHTML'))
+                error_messages = driver.find_elements(By.CSS_SELECTOR, ".error_message, .alert, #msg_error")
+                for error in error_messages:
+                    log_message(f"발견된 에러 메시지: {error.text}")
             except:
                 pass
+            
+            return False
+            
+        except Exception as e:
+            log_message(f"로그인 과정 중 오류: {str(e)}")
             return False
             
     except Exception as e:
-        log_message(f"로그인 시도 중 오류: {str(e)}")
+        log_message(f"로그인 시도 중 예외 발생: {str(e)}")
         return False
 
 def convert_to_direct_download_link(web_view_link):
@@ -525,42 +523,75 @@ def get_pdf_download_links(driver, content_element):
         # PDF 다운로드 링크와 파일명을 함께 저장할 리스트
         pdf_info_list = []
         
+        # 로그인 상태 재확인
+        if not check_login_status(driver):
+            log_message("PDF 다운로드 시도 전 로그인 상태 확인 실패")
+            if not login_to_iboss(driver):
+                log_message("재로그인 시도 실패")
+                return []
+        
         # 첨부파일 영역에서 PDF 링크 찾기
         attachment_areas = driver.find_elements(By.CSS_SELECTOR, ".attached_file_in_conts")
         for area in attachment_areas:
             try:
-                # PDF 아이콘 확인
-                pdf_icon = area.find_element(By.CSS_SELECTOR, "img[src*='pdf.gif']")
+                # PDF 링크 찾기 (수정된 선택자 사용)
+                download_links = area.find_elements(By.CSS_SELECTOR, "a[id='content_download']")
                 
-                # 파일명과 다운로드 링크 추출
-                file_name_element = area.find_element(By.CSS_SELECTOR, ".file_name a span")
-                file_name = file_name_element.text.strip()
-                
-                download_link = area.find_element(By.CSS_SELECTOR, ".file_name a")
-                href = download_link.get_attribute("href")
-                
-                if href and file_name:
-                    log_message(f"PDF 파일 발견: {file_name}")
-                    log_message(f"다운로드 URL: {href}")
-                    
-                    # PDF 파일을 서버에 저장
-                    server_url = save_to_server(driver, href, file_name)
-                    
-                    if server_url:
-                        pdf_info_list.append({
-                            "file_name": file_name,
-                            "download_url": server_url
-                        })
-                        log_message(f"PDF 파일 처리 완료: {file_name}")
-                        log_message(f"서버 URL: {server_url}")
+                for download_link in download_links:
+                    try:
+                        href = download_link.get_attribute("href")
+                        file_name = download_link.find_element(By.CSS_SELECTOR, "span").text.strip()
+                        
+                        if href and file_name:
+                            log_message(f"PDF 파일 발견: {file_name}")
+                            log_message(f"다운로드 URL: {href}")
+                            
+                            # PDF 파일을 서버에 저장
+                            server_url = save_to_server(driver, href, file_name)
+                            
+                            if server_url:
+                                pdf_info_list.append({
+                                    "file_name": file_name,
+                                    "download_url": server_url
+                                })
+                                log_message(f"PDF 파일 처리 완료: {file_name}")
+                                log_message(f"서버 URL: {server_url}")
+                    except Exception as e:
+                        log_message(f"개별 PDF 링크 처리 중 오류: {str(e)}")
+                        continue
+                        
             except Exception as e:
-                log_message(f"첨부파일 처리 중 오류: {str(e)}")
+                log_message(f"첨부파일 영역 처리 중 오류: {str(e)}")
                 continue
         
         return pdf_info_list
     except Exception as e:
         log_message(f"PDF 다운로드 링크 추출 중 오류: {str(e)}")
         return []
+
+def check_login_status(driver):
+    """로그인 상태를 확인하는 함수"""
+    try:
+        # 로그인 상태 확인을 위한 요소들
+        success_indicators = [
+            "a[href*='logout']",
+            ".user-menu",
+            ".mypage",
+            "#member_info"
+        ]
+        
+        for indicator in success_indicators:
+            try:
+                element = WebDriverWait(driver, 2).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, indicator))
+                )
+                return True
+            except:
+                continue
+        
+        return False
+    except:
+        return False
 
 def crawl_boss_pdf():
     try:
@@ -807,8 +838,22 @@ if __name__ == "__main__":
                             ).execute()
                             current_values = [headers]
                         
-                        # 기존 제목 목록 가져오기 (중복 체크용)
-                        existing_titles = [row[0] for row in current_values[1:] if row]
+                        # 기존 데이터에서 제목, PDF 링크, 파일명을 모두 가져옴
+                        existing_data = {
+                            'titles': set(),
+                            'pdf_links': set(),
+                            'file_names': set()
+                        }
+                        
+                        for row in current_values[1:]:
+                            if len(row) >= 7:  # 최소한 7개 컬럼이 있는지 확인
+                                existing_data['titles'].add(row[0])  # 제목
+                                if len(row) > 3 and row[3]:  # PDF 링크
+                                    existing_data['pdf_links'].update(link.strip() for link in row[3].split(','))
+                                if len(row) > 6 and row[6]:  # 파일명
+                                    existing_data['file_names'].update(name.strip() for name in row[6].split(','))
+                        
+                        print(f"{worksheet_title} - 기존 데이터 수: 제목 {len(existing_data['titles'])}, PDF 링크 {len(existing_data['pdf_links'])}, 파일명 {len(existing_data['file_names'])}")
                         
                         # 새로운 데이터를 저장할 리스트
                         new_rows = []
@@ -819,17 +864,28 @@ if __name__ == "__main__":
                                 title = result.get('title', '')
                                 print(f"{worksheet_title} - 처리 중인 결과 #{idx+1}: {title[:30]}...")
                                 
-                                # 중복 체크
-                                if title in existing_titles:
-                                    print(f"{worksheet_title} - 중복 항목 건너뜀: {title[:30]}...")
-                                    continue
-                                
                                 # PDF 정보 처리
                                 pdf_links = []
                                 pdf_names = []
+                                is_duplicate = False
+                                
                                 for pdf_info in result.get('pdf_links', []):
-                                    pdf_links.append(pdf_info['download_url'])
-                                    pdf_names.append(pdf_info['file_name'])
+                                    pdf_link = pdf_info['download_url']
+                                    pdf_name = pdf_info['file_name']
+                                    
+                                    # 개별 PDF 파일에 대한 중복 체크
+                                    if pdf_link in existing_data['pdf_links'] or pdf_name in existing_data['file_names']:
+                                        print(f"{worksheet_title} - 중복된 PDF 발견: {pdf_name}")
+                                        is_duplicate = True
+                                        break
+                                    
+                                    pdf_links.append(pdf_link)
+                                    pdf_names.append(pdf_name)
+                                
+                                # 제목이 중복이거나 PDF가 중복인 경우 건너뛰기
+                                if title in existing_data['titles'] or is_duplicate:
+                                    print(f"{worksheet_title} - 중복 항목 건너뜀: {title[:30]}...")
+                                    continue
                                 
                                 # 현재 날짜 및 시간 추가
                                 now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -848,6 +904,12 @@ if __name__ == "__main__":
                                 
                                 new_rows.append(row_data)
                                 new_data_count += 1
+                                
+                                # 새로 추가된 데이터를 existing_data에 추가
+                                existing_data['titles'].add(title)
+                                existing_data['pdf_links'].update(pdf_links)
+                                existing_data['file_names'].update(pdf_names)
+                                
                                 print(f"{worksheet_title} - 항목 #{idx+1} 데이터 생성 완료")
                                 
                             except Exception as e:
