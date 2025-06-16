@@ -690,7 +690,8 @@ def crawl_boss_pdf():
         if os.path.exists('/usr/bin/chromium-browser'):  # GitHub Actions 환경
             options.binary_location = '/usr/bin/chromium-browser'
             chrome_driver_path = '/usr/bin/chromedriver'
-            driver = webdriver.Chrome(executable_path=chrome_driver_path, options=options)
+            service = Service(chrome_driver_path)
+            driver = webdriver.Chrome(service=service, options=options)
         else:  # 로컬 환경
             driver = webdriver.Chrome(options=options)
         
@@ -844,7 +845,8 @@ if __name__ == "__main__":
         if os.path.exists('/usr/bin/chromium-browser'):  # GitHub Actions 환경
             options.binary_location = '/usr/bin/chromium-browser'
             chrome_driver_path = '/usr/bin/chromedriver'
-            driver = webdriver.Chrome(executable_path=chrome_driver_path, options=options)
+            service = Service(chrome_driver_path)
+            driver = webdriver.Chrome(service=service, options=options)
         else:  # 로컬 환경
             driver = webdriver.Chrome(options=options)
         
