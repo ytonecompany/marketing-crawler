@@ -245,9 +245,13 @@ def crawl_google_ads_announcements(html_content):
             # 링크 추출
             link = announcement.find('a', class_='announcement__post-body-read-more-link')['href']
             
+            # 카테고리 (기본값 설정)
+            category = "일반"
+            
             # 결과 딕셔너리에 저장
             results.append({
                 'title': title,
+                'category': category,
                 'date': date_str,
                 'content': content,
                 'link': f"https://support.google.com{link}"
@@ -257,16 +261,7 @@ def crawl_google_ads_announcements(html_content):
             print(f"Error processing announcement: {e}")
             continue
     
-    # DataFrame 생성
-    df = pd.DataFrame(results)
-    
-    # 날짜 형식 변환
-    df['date'] = pd.to_datetime(df['date'], format='%Y년 %m월 %d일')
-    
-    # 날짜순으로 정렬
-    df = df.sort_values('date', ascending=False)
-    
-    return df
+    return results
 
 # 결과를 CSV 파일로 저장하는 함수
 def save_to_csv(df, filename):
