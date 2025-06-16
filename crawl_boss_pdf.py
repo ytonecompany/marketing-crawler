@@ -456,7 +456,6 @@ def save_to_server(driver, download_url, file_name):
             log_message("파일 다운로드 시도 중...")
             response = session.get(download_url, headers=headers, stream=True, timeout=30)
             log_message(f"서버 응답 상태 코드: {response.status_code}")
-            log_message(f"응답 헤더: {dict(response.headers)}")
             
             if response.status_code == 200:
                 try:
@@ -467,11 +466,6 @@ def save_to_server(driver, download_url, file_name):
                     
                     if content_length < 1000:  # 파일이 너무 작은 경우
                         log_message(f"경고: 다운로드된 파일이 너무 작습니다 ({content_length} bytes)")
-                        try:
-                            log_message("응답 내용 확인:")
-                            log_message(content.decode('utf-8')[:500])  # 텍스트로 변환 시도
-                        except:
-                            log_message("응답 내용을 텍스트로 변환할 수 없음")
                         return None
                     
                     # 구글 드라이브 서비스 인증
@@ -484,6 +478,20 @@ def save_to_server(driver, download_url, file_name):
                     # 드라이브 서비스 생성
                     drive_service = build('drive', 'v3', credentials=credentials)
                     log_message("구글 드라이브 서비스 인증 완료")
+                    
+                    # 기존 파일 검색
+                    try:
+                        results = drive_service.files().list(
+                            q=f"name='{safe_filename}' and '1dnb8Rz-WTW-bCFvoU99q0DUcCb71HSTq' in parents",
+                            spaces='drive'
+                        ).execute()
+                        
+                        if results.get('files', []):
+                            # 기존 파일이 있으면 해당 파일의 링크 반환
+                            file_id = results['files'][0]['id']
+                            return convert_to_direct_download_link(f"https://drive.google.com/file/d/{file_id}/view")
+                    except Exception as e:
+                        log_message(f"기존 파일 검색 중 오류: {str(e)}")
                     
                     # 임시 파일 생성 및 저장
                     temp_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), safe_filename)
@@ -538,11 +546,6 @@ def save_to_server(driver, download_url, file_name):
                     
             else:
                 log_message(f"PDF 다운로드 실패: 상태 코드 {response.status_code}")
-                try:
-                    log_message("오류 응답 내용:")
-                    log_message(response.text[:500])
-                except:
-                    pass
                 return None
                 
         except requests.exceptions.RequestException as e:
@@ -551,8 +554,6 @@ def save_to_server(driver, download_url, file_name):
             
     except Exception as e:
         log_message(f"파일 저장 중 예외 발생: {str(e)}")
-        import traceback
-        log_message(f"상세 오류: {traceback.format_exc()}")
         return None
     finally:
         log_message("=== PDF 파일 저장 종료 ===\n")
@@ -828,18 +829,25 @@ def crawl_boss_pdf():
         except:
             pass
 
-# 메인 코드 (필요한 경우)
-if __name__ == "__main__":
-    print("크롤링 시작:", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+def process_missing_pdfs(sheet_name):
+    """PDF 링크가 없는 항목들을 처리"""
     try:
+        # Google Sheets 설정
+        sheet = setup_google_sheets()
+        if not sheet:
+            return
+            
+        # 모든 데이터 가져오기
+        all_data = sheet.get_all_values()
+        if len(all_data) <= 1:  # 헤더만 있는 경우
+            return
+            
         # Selenium 드라이버 설정
         options = webdriver.ChromeOptions()
-        options.add_argument('--headless')  # 헤드리스 모드
+        options.add_argument('--headless')
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--disable-gpu')
-        
-        # User-Agent 설정
         options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36')
         
         if os.path.exists('/usr/bin/chromium-browser'):  # GitHub Actions 환경
@@ -850,337 +858,67 @@ if __name__ == "__main__":
         else:  # 로컬 환경
             driver = webdriver.Chrome(options=options)
         
-        # 크롤링 실행
-        results = crawl_boss_pdf()
-        
-        # 결과 처리 - 구글 스프레드시트에 저장
-        if results:
-            print(f"크롤링 완료: {len(results)}개의 PDF 게시물 정보를 추출했습니다.")
-            
-            try:
-                # Google Sheets 설정
-                scope = [
-                    'https://www.googleapis.com/auth/spreadsheets',
-                    'https://www.googleapis.com/auth/drive'
-                ]
+        try:
+            # 로그인
+            if not login_to_iboss(driver):
+                log_message("로그인 실패")
+                return
                 
-                # 서비스 계정 JSON 파일 경로 설정
-                SERVICE_ACCOUNT_FILE = 'naver-452205-a733573ea425.json'
-                if not os.path.exists(SERVICE_ACCOUNT_FILE):
-                    SERVICE_ACCOUNT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), SERVICE_ACCOUNT_FILE)
-                
-                print(f"서비스 계정 파일 경로: {SERVICE_ACCOUNT_FILE}")
-                print(f"파일 존재 여부: {os.path.exists(SERVICE_ACCOUNT_FILE)}")
-                
-                credentials = service_account.Credentials.from_service_account_file(
-                    SERVICE_ACCOUNT_FILE,
-                    scopes=scope
-                )
-                
-                print(f"서비스 계정 이메일: {credentials.service_account_email}")
-                
-                # gspread 클라이언트 생성
-                gc = gspread.authorize(credentials)
-                print("gspread 인증 성공")
-                
-                # 스프레드시트 열기 - 정확한 ID 확인
-                current_spreadsheet_id = SPREADSHEET_ID
-                print(f"사용 중인 스프레드시트 ID: {current_spreadsheet_id}")
-                
+            # 각 행 처리
+            for idx, row in enumerate(all_data[1:], start=2):  # 2부터 시작 (헤더 제외)
                 try:
-                    # 스프레드시트 열기 전 접근 가능한 모든 스프레드시트 목록 확인
-                    all_spreadsheets = gc.openall()
-                    print(f"접근 가능한 스프레드시트 목록:")
-                    for sheet in all_spreadsheets:
-                        print(f"- {sheet.title} (ID: {sheet.id})")
+                    if len(row) >= 4 and not row[3].strip():  # D열(PDF 링크)이 비어있는 경우
+                        title = row[0]
+                        post_link = row[2]
+                        log_message(f"\n처리 중: {title}")
+                        
+                        # 게시물 페이지 방문
+                        driver.get(post_link)
+                        time.sleep(3)
+                        
+                        # PDF 다운로드 링크 찾기
+                        content_element = driver.find_element(By.CSS_SELECTOR, ".ABA-view-body")
+                        pdf_links = get_pdf_download_links(driver, content_element)
+                        
+                        if pdf_links:
+                            # PDF 링크와 파일명을 콤마로 구분하여 저장
+                            pdf_urls = [link['download_url'] for link in pdf_links if link['download_url']]
+                            pdf_names = [link['file_name'] for link in pdf_links if link['file_name']]
+                            
+                            if pdf_urls:
+                                # D열(PDF 링크)와 G열(파일명) 업데이트
+                                sheet.update_cell(idx, 4, ', '.join(pdf_urls))  # D열
+                                sheet.update_cell(idx, 7, ', '.join(pdf_names))  # G열
+                                log_message(f"업데이트 완료: {title}")
+                                time.sleep(1)  # API 제한 방지
                 except Exception as e:
-                    print(f"스프레드시트 목록 조회 실패: {str(e)}")
-                
-                try:
-                    # 직접 sheets API 사용
-                    service = build('sheets', 'v4', credentials=credentials)
-                    print("Sheets API 서비스 생성 성공")
+                    log_message(f"행 처리 중 오류: {str(e)}")
+                    continue
                     
-                    # 스프레드시트 정보 요청
-                    spreadsheet_info = service.spreadsheets().get(spreadsheetId=current_spreadsheet_id).execute()
-                    print(f"스프레드시트 정보 가져오기 성공: {spreadsheet_info['properties']['title']}")
-                    
-                    # 기존 시트 정보 확인
-                    sheets = spreadsheet_info.get('sheets', [])
-                    sheet_titles = [sheet['properties']['title'] for sheet in sheets]
-                    print(f"스프레드시트 내 시트 목록: {sheet_titles}")
-                    
-                    # 두 개의 시트에 데이터 추가하기 위한 함수 정의
-                    def process_sheet_data(worksheet_title):
-                        print(f"\n===== {worksheet_title} 시트 처리 시작 =====")
-                        
-                        # 시트 정보 가져오기
-                        sheet_info = next((sheet for sheet in sheets if sheet['properties']['title'] == worksheet_title), None)
-                        if not sheet_info:
-                            print(f"{worksheet_title} 시트를 찾을 수 없습니다.")
-                            return 0
-                        
-                        # sheet_id 가져오기
-                        sheet_id = sheet_info['properties']['sheetId']
-                        print(f"{worksheet_title} 시트 ID: {sheet_id}")
-                        
-                        # 현재 시트의 데이터 가져오기
-                        result = service.spreadsheets().values().get(
-                            spreadsheetId=current_spreadsheet_id,
-                            range=f"{worksheet_title}!A:H"
-                        ).execute()
-                        
-                        current_values = result.get('values', [])
-                        if not current_values:
-                            print(f"{worksheet_title} - 시트가 비어있습니다. 헤더 추가...")
-                            headers = ['제목', '작성일', '링크', 'PDF 링크', '내용', '중요여부', '파일명', '마지막 업데이트']
-                            service.spreadsheets().values().update(
-                                spreadsheetId=current_spreadsheet_id,
-                                range=f"{worksheet_title}!A1:H1",
-                                valueInputOption="RAW",
-                                body={"values": [headers]}
-                            ).execute()
-                            current_values = [headers]
-                        
-                        # 기존 데이터에서 제목, PDF 링크, 파일명을 모두 가져옴
-                        existing_data = {
-                            'titles': set(),
-                            'pdf_links': set(),
-                            'file_names': set()
-                        }
-                        
-                        for row in current_values[1:]:
-                            if len(row) >= 7:  # 최소한 7개 컬럼이 있는지 확인
-                                existing_data['titles'].add(row[0])  # 제목
-                                if len(row) > 3 and row[3]:  # PDF 링크
-                                    existing_data['pdf_links'].update(link.strip() for link in row[3].split(','))
-                                if len(row) > 6 and row[6]:  # 파일명
-                                    existing_data['file_names'].update(name.strip() for name in row[6].split(','))
-                        
-                        print(f"{worksheet_title} - 기존 데이터 수: 제목 {len(existing_data['titles'])}, PDF 링크 {len(existing_data['pdf_links'])}, 파일명 {len(existing_data['file_names'])}")
-                        
-                        # 새로운 데이터를 저장할 리스트
-                        new_rows = []
-                        new_data_count = 0
-                        
-                        for idx, result in enumerate(results):
-                            try:
-                                title = result.get('title', '')
-                                print(f"{worksheet_title} - 처리 중인 결과 #{idx+1}: {title[:30]}...")
-                                
-                                # PDF 정보 처리
-                                pdf_links = []
-                                pdf_names = []
-                                is_duplicate = False
-                                
-                                for pdf_info in result.get('pdf_links', []):
-                                    pdf_link = pdf_info['download_url']
-                                    pdf_name = pdf_info['file_name']
-                                    
-                                    # 개별 PDF 파일에 대한 중복 체크
-                                    if pdf_link in existing_data['pdf_links'] or pdf_name in existing_data['file_names']:
-                                        print(f"{worksheet_title} - 중복된 PDF 발견: {pdf_name}")
-                                        is_duplicate = True
-                                        break
-                                    
-                                    pdf_links.append(pdf_link)
-                                    pdf_names.append(pdf_name)
-                                
-                                # 제목이 중복이거나 PDF가 중복인 경우 건너뛰기
-                                if title in existing_data['titles'] or is_duplicate:
-                                    print(f"{worksheet_title} - 중복 항목 건너뜀: {title[:30]}...")
-                                    continue
-                                
-                                # 현재 날짜 및 시간 추가
-                                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                
-                                # 새 행 데이터 설정
-                                row_data = [
-                                    title,                                  # A열: 제목
-                                    result.get('date', ''),                 # B열: 작성일
-                                    result.get('link', ''),                 # C열: 링크
-                                    ', '.join(pdf_links) if pdf_links else '', # D열: PDF 링크
-                                    result.get('content', ''),              # E열: 내용
-                                    '',                                     # F열: 중요여부
-                                    ', '.join(pdf_names) if pdf_names else '', # G열: 파일명
-                                    now                                     # H열: 마지막 업데이트
-                                ]
-                                
-                                new_rows.append(row_data)
-                                new_data_count += 1
-                                
-                                # 새로 추가된 데이터를 existing_data에 추가
-                                existing_data['titles'].add(title)
-                                existing_data['pdf_links'].update(pdf_links)
-                                existing_data['file_names'].update(pdf_names)
-                                
-                                print(f"{worksheet_title} - 항목 #{idx+1} 데이터 생성 완료")
-                                
-                            except Exception as e:
-                                print(f"{worksheet_title} - 행 데이터 생성 중 오류: {str(e)}")
-                        
-                        if new_rows:
-                            print(f"{worksheet_title} - {new_data_count}개의 새 항목을 추가합니다...")
-                            
-                            # 2번째 행에 새로운 행들을 삽입
-                            for row_data in reversed(new_rows):  # 역순으로 처리하여 순서 유지
-                                # 2번째 행에 빈 행 삽입
-                                request = {
-                                    'insertDimension': {
-                                        'range': {
-                                            'sheetId': sheet_id,
-                                            'dimension': 'ROWS',
-                                            'startIndex': 1,  # 2번째 행 (0-based index)
-                                            'endIndex': 2
-                                        }
-                                    }
-                                }
-                                
-                                service.spreadsheets().batchUpdate(
-                                    spreadsheetId=current_spreadsheet_id,
-                                    body={'requests': [request]}
-                                ).execute()
-                                
-                                # 삽입된 행에 데이터 입력
-                                update_range = f"{worksheet_title}!A2:H2"
-                                service.spreadsheets().values().update(
-                                    spreadsheetId=current_spreadsheet_id,
-                                    range=update_range,
-                                    valueInputOption="RAW",
-                                    body={"values": [row_data]}
-                                ).execute()
-                            
-                            print(f"{worksheet_title} - 업데이트 완료: {new_data_count}개의 새 항목이 2번째 행에 추가됨")
-                        else:
-                            print(f"{worksheet_title} - 추가할 새 항목이 없습니다")
-                        
-                        # 최종 확인
-                        final_result = service.spreadsheets().values().get(
-                            spreadsheetId=current_spreadsheet_id,
-                            range=f"{worksheet_title}!A:H"
-                        ).execute()
-                        
-                        final_values = final_result.get('values', [])
-                        print(f"{worksheet_title} - 업데이트 후 시트에 {len(final_values)} 행의 데이터가 있습니다")
-                        print(f"===== {worksheet_title} 시트 처리 완료 =====\n")
-                        
-                        return new_data_count
-                    
-                    # 첫 번째 시트 (Boss_pdf) 처리
-                    pdf_count = process_sheet_data('Boss_pdf')
-                    print(f"Boss_pdf 시트에 {pdf_count}개의 항목이 추가되었습니다.")
-                    
-                    # 두 번째 시트 (Boss_pdf2) 처리
-                    pdf2_count = process_sheet_data('Boss_pdf2')
-                    print(f"Boss_pdf2 시트에 {pdf2_count}개의 항목이 추가되었습니다.")
-                    
-                    print("\n==== 모든 시트 처리 완료 ====")
-                    print(f"총 추가된 항목 수: Boss_pdf({pdf_count}), Boss_pdf2({pdf2_count})")
-                    
-                except Exception as e:
-                    print(f"스프레드시트 작업 중 오류: {str(e)}")
-                    import traceback
-                    print(f"상세 오류: {traceback.format_exc()}")
-                    
-                    # 백업 방법 시도: 일반 gspread 사용
-                    print("백업 방법으로 gspread 라이브러리 사용 시도...")
-                    
-                    def backup_process_sheet(sheet_name):
-                        print(f"\n===== 백업: {sheet_name} 시트 처리 시작 =====")
-                        spreadsheet = gc.open_by_key(current_spreadsheet_id)
-                        print(f"스프레드시트 '{spreadsheet.title}' 열기 성공")
-                        
-                        try:
-                            sheet = spreadsheet.worksheet(sheet_name)
-                            print(f"{sheet_name} 시트 열기 성공")
-                        except gspread.exceptions.WorksheetNotFound:
-                            sheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=10)
-                            sheet.append_row(['제목', '작성일', '링크', 'PDF 링크', '내용', '중요여부', '파일명', '마지막 업데이트'])
-                            print(f"{sheet_name} 시트 생성 및 헤더 추가 완료")
-                        
-                        # 단일 행씩 추가 시도
-                        new_data_count = 0
-                        all_values = sheet.get_all_values()
-                        existing_titles = [row[0] for row in all_values[1:] if row]
-                        
-                        for idx, result in enumerate(results):
-                            title = result.get('title', '')
-                            if title in existing_titles:
-                                print(f"{sheet_name} - 백업: 중복 항목 건너뜀: {title[:30]}...")
-                                continue
-                            
-                            # PDF 정보 처리
-                            pdf_links = []
-                            pdf_names = []
-                            for pdf_info in result.get('pdf_links', []):
-                                pdf_links.append(pdf_info['download_url'])
-                                pdf_names.append(pdf_info['file_name'])
-                            
-                            # 현재 날짜 및 시간
-                            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            
-                            # 데이터 설정
-                            row_data = [
-                                title,                                   # A열: 제목
-                                result.get('date', ''),                  # B열: 작성일
-                                result.get('link', ''),                  # C열: 링크
-                                ', '.join(pdf_links) if pdf_links else '',  # D열: PDF 링크
-                                result.get('content', ''),               # E열: 내용
-                                '',                                      # F열: 중요여부
-                                ', '.join(pdf_names) if pdf_names else '',  # G열: 파일명
-                                now                                      # H열: 마지막 업데이트
-                            ]
-                            
-                            try:
-                                # append_row를 사용하여 전체 행을 한 번에 추가 시도
-                                print(f"{sheet_name} - 백업: 행 추가 시도... {title[:30]}")
-                                sheet.append_row(row_data)
-                                new_data_count += 1
-                                print(f"{sheet_name} - 백업: 행 추가 완료 ({new_data_count})")
-                                
-                                # API 제한 방지
-                                time.sleep(1)
-                                
-                            except Exception as e:
-                                print(f"{sheet_name} - 백업: 행 추가 중 오류: {str(e)}")
-                                
-                                try:
-                                    # 각 항목별로 update_cell 사용 시도
-                                    row_num = len(sheet.get_all_values()) + 1
-                                    print(f"{sheet_name} - 백업: 셀 업데이트 시도... 행 {row_num}")
-                                    
-                                    for col_idx, value in enumerate(row_data, start=1):
-                                        sheet.update_cell(row_num, col_idx, value)
-                                        print(f"{sheet_name} - 백업: 셀 {row_num}행 {col_idx}열 업데이트 완료")
-                                        time.sleep(0.5)  # API 제한 방지
-                                    
-                                    new_data_count += 1
-                                    print(f"{sheet_name} - 백업: 행 {row_num} 추가 완료")
-                                except Exception as e2:
-                                    print(f"{sheet_name} - 백업: 셀 업데이트 중 오류: {str(e2)}")
-                            
-                        print(f"===== 백업: {sheet_name} 시트 처리 완료 ({new_data_count}개 항목 추가) =====\n")
-                        return new_data_count
-                    
-                    # 두 시트에 대해 백업 처리 수행
-                    backup1_count = backup_process_sheet('Boss_pdf')
-                    backup2_count = backup_process_sheet('Boss_pdf2')
-                    print(f"\n==== 백업 방법 처리 완료 ====")
-                    print(f"총 추가된 항목 수: Boss_pdf({backup1_count}), Boss_pdf2({backup2_count})")
-                
-            except Exception as e:
-                print(f"스프레드시트 업데이트 중 오류: {str(e)}")
-                import traceback
-                print(f"상세 오류: {traceback.format_exc()}")
-        else:
-            print("크롤링 결과가 없습니다.")
+        finally:
+            driver.quit()
             
     except Exception as e:
-        print(f"크롤링 중 오류 발생: {str(e)}")
+        log_message(f"PDF 처리 중 오류: {str(e)}")
+
+# 메인 코드에 process_missing_pdfs 호출 추가
+if __name__ == "__main__":
+    print("크롤링 시작:", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    try:
+        # 기존 크롤링 코드 실행
+        # ... existing code ...
+        
+        # PDF 링크가 없는 항목 처리
+        print("\nPDF 링크가 없는 항목 처리 시작")
+        process_missing_pdfs('Boss_pdf')
+        process_missing_pdfs('Boss_pdf2')
+        print("모든 처리 완료")
+        
+    except Exception as e:
+        print(f"실행 중 오류 발생: {str(e)}")
         import traceback
         print(f"상세 오류: {traceback.format_exc()}")
     finally:
-        # 드라이버 종료
         if 'driver' in locals():
             driver.quit()
             print("드라이버 종료")
