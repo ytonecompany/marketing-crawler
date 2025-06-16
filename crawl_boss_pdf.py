@@ -464,7 +464,38 @@ def check_and_clean_drive_space(drive_service):
         files = results.get('files', [])
         log_message(f"pdf_storage 폴더 내 총 {len(files)}개 PDF 파일 발견")
         
+        # 6개월 이상된 파일 처리
+        six_months_ago = (datetime.now() - timedelta(days=180)).isoformat() + 'Z'  # ISO 형식으로 변환
+        old_files_to_delete = []
+        old_files_size = 0
+        
+        for file in files:
+            created_time = file.get('createdTime', '')
+            if created_time and created_time < six_months_ago:
+                old_files_to_delete.append(file)
+                old_files_size += int(file.get('size', 0))
+        
+        if old_files_to_delete:
+            log_message(f"\n6개월 이상된 파일 정리 시작: {len(old_files_to_delete)}개 파일")
+            for file in old_files_to_delete:
+                try:
+                    drive_service.files().delete(fileId=file['id']).execute()
+                    created_date = datetime.fromisoformat(file['createdTime'].replace('Z', '+00:00')).strftime('%Y-%m-%d')
+                    log_message(f"오래된 파일 삭제: {file['name']} (생성일: {created_date})")
+                except Exception as e:
+                    log_message(f"파일 삭제 실패 {file['name']}: {str(e)}")
+            
+            log_message(f"6개월 이상된 파일 정리 완료: {len(old_files_to_delete)}개 파일 삭제 ({old_files_size/(1024*1024):.2f}MB 확보)")
+        
         # 중복 파일 처리
+        # 남은 파일들 다시 조회
+        results = drive_service.files().list(
+            q=f"'{folder_id}' in parents and mimeType='application/pdf'",
+            fields="files(id, name, createdTime, size, md5Checksum)",
+            orderBy="createdTime"
+        ).execute()
+        
+        files = results.get('files', [])
         files_by_name = {}
         files_by_checksum = {}
         duplicates_to_delete = set()
@@ -564,7 +595,7 @@ def check_and_clean_drive_space(drive_service):
             log_message(f"오래된 파일 정리 완료: {len(files_to_delete)}개 파일 삭제 (총 {old_deleted_size/(1024*1024):.2f}MB 추가 확보)")
         
         # 최종 정리 결과
-        total_deleted_size = deleted_size + (old_deleted_size if 'old_deleted_size' in locals() else 0)
+        total_deleted_size = old_files_size + deleted_size + (old_deleted_size if 'old_deleted_size' in locals() else 0)
         if total_deleted_size > 0:
             log_message(f"\n총 정리 결과: {total_deleted_size/(1024*1024):.2f}MB 공간 확보")
         
@@ -1057,13 +1088,9 @@ def process_missing_pdfs(sheet_name):
 if __name__ == "__main__":
     print("크롤링 시작:", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     try:
-        # 기존 크롤링 코드 실행
-        # ... existing code ...
-        
         # PDF 링크가 없는 항목 처리
         print("\nPDF 링크가 없는 항목 처리 시작")
         process_missing_pdfs('Boss_pdf')
-        process_missing_pdfs('Boss_pdf2')
         print("모든 처리 완료")
         
     except Exception as e:
