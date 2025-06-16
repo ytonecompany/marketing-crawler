@@ -763,128 +763,129 @@ def get_pdf_download_links(driver, content_element):
             log_message("페이지 소스 확인:")
             log_message(page_source[:500])  # 처음 500자만 로깅
             
-            # 모든 링크 요소 찾기
-            all_links = driver.find_elements(By.TAG_NAME, "a")
-            log_message(f"페이지 내 전체 링크 수: {len(all_links)}")
-            
-            # PDF 다운로드 링크 찾기 (여러 선택자 시도)
-            download_selectors = [
-                "a[id='content_download']",
-                "a[href*='download_file.php']",
-                ".attached_file_in_conts a",
-                "a[href*='.pdf']",
-                ".ABA-view-body a[href*='.pdf']",
-                ".ABA-article-contents a[href*='.pdf']",
-                "#bo_content a[href*='.pdf']",
-                ".read_body a[href*='.pdf']",
-                ".article-body a[href*='.pdf']",
-                "a[href*='download']",
-                "a[href*='attachment']",
-                "a[onclick*='download']",
-                "a[href*='file_download']",
-                ".file_link a",
-                ".download_link",
-                ".pdf_link",
-                "a[href*='files']",
-                "a[href*='data']"
-            ]
-            
-            for selector in download_selectors:
-                log_message(f"선택자 {selector} 시도 중...")
-                download_links = driver.find_elements(By.CSS_SELECTOR, selector)
-                
-                if download_links:
-                    log_message(f"선택자 {selector}로 {len(download_links)}개의 링크 발견")
-                    
-                    for download_link in download_links:
-                        try:
-                            href = download_link.get_attribute("href")
-                            # onclick 속성도 확인
-                            onclick = download_link.get_attribute("onclick")
-                            
-                            # onclick에서 URL 추출 시도
-                            if onclick and not href:
-                                import re
-                                url_match = re.search(r"window\.open\('([^']+)'", onclick)
-                                if url_match:
-                                    href = url_match.group(1)
-                            
-                            # 링크 텍스트나 span 내부 텍스트에서 파일명 추출 시도
-                            file_name = ""
-                            try:
-                                # span 태그 내부 텍스트 확인
-                                span = download_link.find_element(By.TAG_NAME, "span")
-                                file_name = span.text.strip()
-                            except:
-                                # 직접 링크 텍스트 사용
-                                file_name = download_link.text.strip()
-                            
-                            # href에서 파일명 추출 시도
-                            if not file_name and href:
-                                file_name = href.split('/')[-1]
-                                if '?' in file_name:
-                                    file_name = file_name.split('?')[0]
-                            
-                            # href나 파일명이 비어있지 않고, PDF 관련 키워드가 포함된 경우에만 처리
-                            if href and (file_name or '.pdf' in href.lower()):
-                                if not file_name:
-                                    file_name = f"download_{int(time.time())}.pdf"
-                                
-                                log_message(f"PDF 파일 발견:")
-                                log_message(f"- 파일명: {file_name}")
-                                log_message(f"- 다운로드 URL: {href}")
-                                
-                                # PDF 파일을 서버에 저장
-                                server_url = save_to_server(driver, href, file_name)
-                                
-                                if server_url:
-                                    pdf_info_list.append({
-                                        "file_name": file_name,
-                                        "download_url": server_url
-                                    })
-                                    log_message(f"PDF 파일 처리 완료: {file_name}")
-                                    log_message(f"서버 URL: {server_url}")
-                                else:
-                                    log_message(f"PDF 파일 저장 실패: {file_name}")
-                        except Exception as e:
-                            log_message(f"개별 PDF 링크 처리 중 오류: {str(e)}")
-                            continue
-                else:
-                    log_message(f"선택자 {selector}로 링크를 찾을 수 없음")
-            
-            # 추가: iframe 내부 확인
+            # 아이보스 사이트 특화 다운로드 링크 찾기
             try:
-                iframes = driver.find_elements(By.TAG_NAME, "iframe")
-                for iframe in iframes:
+                # 1. content_download ID를 가진 링크 찾기 (가장 일반적인 케이스)
+                download_links = driver.find_elements(By.CSS_SELECTOR, "a#content_download")
+                log_message(f"content_download ID 링크 수: {len(download_links)}")
+                
+                for link in download_links:
                     try:
-                        driver.switch_to.frame(iframe)
-                        iframe_links = driver.find_elements(By.CSS_SELECTOR, "a[href*='.pdf']")
-                        for link in iframe_links:
-                            href = link.get_attribute("href")
-                            if href and '.pdf' in href.lower():
-                                file_name = f"iframe_pdf_{int(time.time())}.pdf"
-                                server_url = save_to_server(driver, href, file_name)
-                                if server_url:
-                                    pdf_info_list.append({
-                                        "file_name": file_name,
-                                        "download_url": server_url
-                                    })
-                        driver.switch_to.default_content()
-                    except:
-                        driver.switch_to.default_content()
+                        href = link.get_attribute("href")
+                        # span 태그에서 파일명 추출
+                        try:
+                            span = link.find_element(By.TAG_NAME, "span")
+                            file_name = span.text.strip()
+                        except:
+                            # data-subject 속성에서 파일명 추출 시도
+                            file_name = link.get_attribute("data-subject")
+                            if not file_name:
+                                file_name = link.text.strip()
+                        
+                        if href and file_name:
+                            log_message(f"아이보스 전용 다운로드 링크 발견:")
+                            log_message(f"- 파일명: {file_name}")
+                            log_message(f"- 다운로드 URL: {href}")
+                            
+                            # PDF 파일을 서버에 저장
+                            server_url = save_to_server(driver, href, file_name)
+                            
+                            if server_url:
+                                pdf_info_list.append({
+                                    "file_name": file_name,
+                                    "download_url": server_url
+                                })
+                                log_message(f"PDF 파일 처리 완료: {file_name}")
+                    except Exception as e:
+                        log_message(f"개별 다운로드 링크 처리 중 오류: {str(e)}")
                         continue
-            except:
-                pass
+            except Exception as e:
+                log_message(f"아이보스 전용 다운로드 링크 처리 중 오류: {str(e)}")
+            
+            # 일반적인 PDF 링크 찾기 (백업 방법)
+            if not pdf_info_list:
+                download_selectors = [
+                    "a[href*='download_file.php']",
+                    ".attached_file_in_conts a",
+                    "a[href*='.pdf']",
+                    ".file_name a",  # 아이보스 사이트의 파일명 클래스
+                    "a[href*='board/download']",  # 아이보스 게시판 다운로드 패턴
+                    ".ABA-view-body a[href*='.pdf']",
+                    ".ABA-article-contents a[href*='.pdf']",
+                    "#bo_content a[href*='.pdf']",
+                    ".read_body a[href*='.pdf']",
+                    ".article-body a[href*='.pdf']",
+                    "a[href*='download']",
+                    "a[href*='attachment']",
+                    "a[onclick*='download']",
+                    "a[href*='file_download']",
+                    ".file_link a",
+                    ".download_link",
+                    ".pdf_link",
+                    "a[href*='files']"
+                ]
+                
+                for selector in download_selectors:
+                    try:
+                        download_links = driver.find_elements(By.CSS_SELECTOR, selector)
+                        if download_links:
+                            log_message(f"선택자 {selector}로 {len(download_links)}개의 링크 발견")
+                            
+                            for download_link in download_links:
+                                try:
+                                    href = download_link.get_attribute("href")
+                                    onclick = download_link.get_attribute("onclick")
+                                    
+                                    # onclick에서 URL 추출 시도
+                                    if onclick and not href:
+                                        import re
+                                        url_match = re.search(r"window\.open\('([^']+)'", onclick)
+                                        if url_match:
+                                            href = url_match.group(1)
+                                    
+                                    # 파일명 추출 시도
+                                    file_name = ""
+                                    try:
+                                        span = download_link.find_element(By.TAG_NAME, "span")
+                                        file_name = span.text.strip()
+                                    except:
+                                        file_name = download_link.text.strip()
+                                    
+                                    if not file_name and href:
+                                        file_name = href.split('/')[-1]
+                                        if '?' in file_name:
+                                            file_name = file_name.split('?')[0]
+                                    
+                                    if href and (file_name or '.pdf' in href.lower()):
+                                        if not file_name:
+                                            file_name = f"download_{int(time.time())}.pdf"
+                                        
+                                        # 이미 처리된 URL인지 확인
+                                        if not any(info["download_url"] == href for info in pdf_info_list):
+                                            server_url = save_to_server(driver, href, file_name)
+                                            if server_url:
+                                                pdf_info_list.append({
+                                                    "file_name": file_name,
+                                                    "download_url": server_url
+                                                })
+                                except Exception as e:
+                                    log_message(f"개별 PDF 링크 처리 중 오류: {str(e)}")
+                                    continue
+                    except Exception as e:
+                        log_message(f"선택자 {selector} 처리 중 오류: {str(e)}")
+                        continue
             
             if not pdf_info_list:
                 log_message("어떤 선택자로도 PDF 링크를 찾을 수 없음")
-                
+            
+            return pdf_info_list
+            
         except Exception as e:
             log_message(f"PDF 링크 검색 중 오류: {str(e)}")
             import traceback
             log_message(f"상세 오류: {traceback.format_exc()}")
-        
-        return pdf_info_list
+            return pdf_info_list
+            
     except Exception as e:
         log_message(f"PDF 다운로드 링크 추출 중 오류: {str(e)}")
         return []
@@ -1014,14 +1015,22 @@ def crawl_boss_pdf():
                         ".ABA-article-contents",
                         "#bo_content",
                         ".read_body",
-                        ".article-body"
+                        ".article-body",
+                        ".board_view_content",
+                        ".view_content",
+                        ".content",
+                        "#article_content",
+                        ".post-content",
+                        ".entry-content",
+                        ".board_body",
+                        ".view_text"
                     ]
                     
                     for selector in content_selectors:
                         try:
                             content_element = driver.find_element(By.CSS_SELECTOR, selector)
-                            content = content_element.text.strip()
-                            if content:
+                            if content_element:
+                                log_message(f"컨텐츠 요소 찾음: {selector}")
                                 break
                         except:
                             continue
@@ -1116,8 +1125,38 @@ def process_missing_pdfs(sheet_name):
                         driver.get(post_link)
                         time.sleep(3)
                         
+                        # 여러 content element 선택자 시도
+                        content_selectors = [
+                            ".ABA-view-body",
+                            ".ABA-article-contents",
+                            "#bo_content",
+                            ".read_body",
+                            ".article-body",
+                            ".board_view_content",
+                            ".view_content",
+                            ".content",
+                            "#article_content",
+                            ".post-content",
+                            ".entry-content",
+                            ".board_body",
+                            ".view_text"
+                        ]
+                        
+                        content_element = None
+                        for selector in content_selectors:
+                            try:
+                                content_element = driver.find_element(By.CSS_SELECTOR, selector)
+                                if content_element:
+                                    log_message(f"컨텐츠 요소 찾음: {selector}")
+                                    break
+                            except:
+                                continue
+                        
+                        if not content_element:
+                            log_message("컨텐츠 요소를 찾을 수 없음, 전체 페이지에서 PDF 검색")
+                            content_element = driver.find_element(By.TAG_NAME, "body")
+                        
                         # PDF 다운로드 링크 찾기
-                        content_element = driver.find_element(By.CSS_SELECTOR, ".ABA-view-body")
                         pdf_links = get_pdf_download_links(driver, content_element)
                         
                         if pdf_links:
@@ -1131,6 +1170,8 @@ def process_missing_pdfs(sheet_name):
                                 sheet.update_cell(idx, 7, ', '.join(pdf_names))  # G열
                                 log_message(f"업데이트 완료: {title}")
                                 time.sleep(1)  # API 제한 방지
+                        else:
+                            log_message(f"PDF 링크를 찾을 수 없음: {title}")
                 except Exception as e:
                     log_message(f"행 처리 중 오류: {str(e)}")
                     continue
