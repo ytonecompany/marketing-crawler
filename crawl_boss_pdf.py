@@ -1089,7 +1089,20 @@ def process_missing_pdfs(sheet_name):
         # 모든 데이터 가져오기
         all_data = sheet.get_all_values()
         if len(all_data) <= 1:  # 헤더만 있는 경우
+            log_message("스프레드시트에 데이터가 없습니다.")
             return
+            
+        # 헤더 출력
+        log_message("\n=== 스프레드시트 데이터 ===")
+        log_message(f"헤더: {all_data[0]}")
+        log_message(f"총 행 수: {len(all_data)}")
+        
+        # 데이터 행 출력
+        for idx, row in enumerate(all_data[1:], start=2):
+            log_message(f"\n행 {idx}:")
+            for col_idx, value in enumerate(row):
+                if col_idx < len(all_data[0]):  # 헤더가 있는 열까지만 출력
+                    log_message(f"{all_data[0][col_idx]}: {value}")
             
         # Selenium 드라이버 설정
         options = webdriver.ChromeOptions()
@@ -1120,11 +1133,21 @@ def process_missing_pdfs(sheet_name):
                         title = row[0]
                         post_link = row[2]
                         log_message(f"\n처리 중: {title}")
+                        log_message(f"게시물 링크: {post_link}")
+                        
+                        if not post_link or not post_link.strip():
+                            log_message("게시물 링크가 비어있습니다. 다음 행으로 넘어갑니다.")
+                            continue
                         
                         # 게시물 페이지 방문
                         driver.get(post_link)
                         time.sleep(3)
                         
+                        # 페이지 소스 출력 (디버깅용)
+                        page_source = driver.page_source
+                        if 'content_download' in page_source:
+                            log_message("페이지에 content_download ID가 존재합니다.")
+                            
                         # 여러 content element 선택자 시도
                         content_selectors = [
                             ".ABA-view-body",
@@ -1148,6 +1171,10 @@ def process_missing_pdfs(sheet_name):
                                 content_element = driver.find_element(By.CSS_SELECTOR, selector)
                                 if content_element:
                                     log_message(f"컨텐츠 요소 찾음: {selector}")
+                                    # 컨텐츠 요소의 HTML 출력
+                                    content_html = content_element.get_attribute('innerHTML')
+                                    log_message("컨텐츠 요소 HTML:")
+                                    log_message(content_html[:500])  # 처음 500자만 출력
                                     break
                             except:
                                 continue
