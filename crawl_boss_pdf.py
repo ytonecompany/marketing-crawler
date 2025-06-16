@@ -772,7 +772,21 @@ def get_pdf_download_links(driver, content_element):
                 "a[id='content_download']",
                 "a[href*='download_file.php']",
                 ".attached_file_in_conts a",
-                "a[href*='.pdf']"
+                "a[href*='.pdf']",
+                ".ABA-view-body a[href*='.pdf']",
+                ".ABA-article-contents a[href*='.pdf']",
+                "#bo_content a[href*='.pdf']",
+                ".read_body a[href*='.pdf']",
+                ".article-body a[href*='.pdf']",
+                "a[href*='download']",
+                "a[href*='attachment']",
+                "a[onclick*='download']",
+                "a[href*='file_download']",
+                ".file_link a",
+                ".download_link",
+                ".pdf_link",
+                "a[href*='files']",
+                "a[href*='data']"
             ]
             
             for selector in download_selectors:
@@ -785,6 +799,16 @@ def get_pdf_download_links(driver, content_element):
                     for download_link in download_links:
                         try:
                             href = download_link.get_attribute("href")
+                            # onclick 속성도 확인
+                            onclick = download_link.get_attribute("onclick")
+                            
+                            # onclick에서 URL 추출 시도
+                            if onclick and not href:
+                                import re
+                                url_match = re.search(r"window\.open\('([^']+)'", onclick)
+                                if url_match:
+                                    href = url_match.group(1)
+                            
                             # 링크 텍스트나 span 내부 텍스트에서 파일명 추출 시도
                             file_name = ""
                             try:
@@ -795,8 +819,17 @@ def get_pdf_download_links(driver, content_element):
                                 # 직접 링크 텍스트 사용
                                 file_name = download_link.text.strip()
                             
-                            # href나 파일명이 비어있지 않은 경우에만 처리
-                            if href and file_name:
+                            # href에서 파일명 추출 시도
+                            if not file_name and href:
+                                file_name = href.split('/')[-1]
+                                if '?' in file_name:
+                                    file_name = file_name.split('?')[0]
+                            
+                            # href나 파일명이 비어있지 않고, PDF 관련 키워드가 포함된 경우에만 처리
+                            if href and (file_name or '.pdf' in href.lower()):
+                                if not file_name:
+                                    file_name = f"download_{int(time.time())}.pdf"
+                                
                                 log_message(f"PDF 파일 발견:")
                                 log_message(f"- 파일명: {file_name}")
                                 log_message(f"- 다운로드 URL: {href}")
@@ -818,6 +851,30 @@ def get_pdf_download_links(driver, content_element):
                             continue
                 else:
                     log_message(f"선택자 {selector}로 링크를 찾을 수 없음")
+            
+            # 추가: iframe 내부 확인
+            try:
+                iframes = driver.find_elements(By.TAG_NAME, "iframe")
+                for iframe in iframes:
+                    try:
+                        driver.switch_to.frame(iframe)
+                        iframe_links = driver.find_elements(By.CSS_SELECTOR, "a[href*='.pdf']")
+                        for link in iframe_links:
+                            href = link.get_attribute("href")
+                            if href and '.pdf' in href.lower():
+                                file_name = f"iframe_pdf_{int(time.time())}.pdf"
+                                server_url = save_to_server(driver, href, file_name)
+                                if server_url:
+                                    pdf_info_list.append({
+                                        "file_name": file_name,
+                                        "download_url": server_url
+                                    })
+                        driver.switch_to.default_content()
+                    except:
+                        driver.switch_to.default_content()
+                        continue
+            except:
+                pass
             
             if not pdf_info_list:
                 log_message("어떤 선택자로도 PDF 링크를 찾을 수 없음")
