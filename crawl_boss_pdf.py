@@ -59,7 +59,7 @@ logging.basicConfig(
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 SPREADSHEET_ID = '1shWpyaGrQF00YKkmYGftL2IAEOgmZ8kjw2s-WKbdyGg'
-RANGE_NAME = 'Boss_pdf!A2:H'
+RANGE_NAME = 'Boss_pdf2!A2:H'
 
 def setup_google_sheets():
     # 필요한 모든 스코프 추가
@@ -91,27 +91,23 @@ def setup_google_sheets():
             spreadsheet = gc.open_by_key(SPREADSHEET_ID)
             print("스프레드시트 열기 성공")
             
-            # Boss_pdf 시트 열기
-            sheet = spreadsheet.worksheet('Boss_pdf')
-            print("Boss_pdf 시트 열기 성공")
+            # Boss_pdf2 시트 열기
+            try:
+                sheet = spreadsheet.worksheet('Boss_pdf2')
+                print("Boss_pdf2 시트 열기 성공")
+            except gspread.exceptions.WorksheetNotFound:
+                print("Boss_pdf2 시트를 찾을 수 없습니다. 새로 생성합니다.")
+                # 시트가 없으면 생성
+                sheet = spreadsheet.add_worksheet(title='Boss_pdf2', rows=1000, cols=10)
+                # 헤더 설정
+                sheet.append_row(['제목', '작성일', '링크', 'PDF 링크', '내용', '중요여부', '파일명', '마지막 업데이트'])
+                print("Boss_pdf2 시트 생성 성공")
             
             return sheet
             
         except gspread.exceptions.SpreadsheetNotFound:
             print(f"스프레드시트를 찾을 수 없습니다. ID: {SPREADSHEET_ID}")
             raise
-        except gspread.exceptions.WorksheetNotFound:
-            print("Boss_pdf 시트를 찾을 수 없습니다.")
-            # 시트가 없으면 생성 시도
-            try:
-                sheet = spreadsheet.add_worksheet(title='Boss_pdf', rows=1000, cols=10)
-                # 헤더 설정
-                sheet.append_row(['제목', '작성일', '링크', 'PDF 링크', '내용', '중요여부', '파일명', '마지막 업데이트'])
-                print("Boss_pdf 시트 생성 성공")
-                return sheet
-            except Exception as e:
-                print(f"시트 생성 중 오류: {str(e)}")
-                raise
         except gspread.exceptions.APIError as e:
             print(f"API 오류: {str(e)}")
             raise
@@ -1215,7 +1211,7 @@ if __name__ == "__main__":
     try:
         # PDF 링크가 없는 항목 처리
         print("\nPDF 링크가 없는 항목 처리 시작")
-        process_missing_pdfs('Boss_pdf')
+        process_missing_pdfs('Boss_pdf2')
         print("모든 처리 완료")
         
     except Exception as e:
@@ -1248,7 +1244,7 @@ if __name__ == "__main__":
 #   gc = gspread.authorize(credentials)
 #   
 #   spreadsheet = gc.open_by_key('1shWpyaGrQF00YKkmYGftL2IAEOgmZ8kjw2s-WKbdyGg')
-#   sheet = spreadsheet.worksheet('Boss_pdf_V2')
+#   sheet = spreadsheet.worksheet('Boss_pdf2')
 #   
 #   # 테스트 데이터 추가
 #   sheet.append_row(['테스트 제목', '테스트 날짜', 'https://example.com', '', '테스트 내용', '테스트파일.pdf'])
