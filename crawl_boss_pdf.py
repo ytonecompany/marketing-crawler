@@ -427,6 +427,152 @@ def upload_to_ftp(file_content, remote_filename):
         log_message(f"상세 오류: {traceback.format_exc()}")
         return False
 
+def check_and_clean_drive_space(drive_service):
+    """드라이브 공간을 확인하고 필요한 경우 오래된 파일을 정리"""
+    try:
+        # pdf_storage 폴더 찾기
+        folder_results = drive_service.files().list(
+            q="name='pdf_storage' and mimeType='application/vnd.google-apps.folder'",
+            fields="files(id, name)"
+        ).execute()
+        
+        folders = folder_results.get('files', [])
+        if not folders:
+            log_message("pdf_storage 폴더를 찾을 수 없습니다.")
+            # 폴더 생성
+            folder_metadata = {
+                'name': 'pdf_storage',
+                'mimeType': 'application/vnd.google-apps.folder'
+            }
+            folder = drive_service.files().create(
+                body=folder_metadata,
+                fields='id'
+            ).execute()
+            folder_id = folder.get('id')
+            log_message("pdf_storage 폴더가 생성되었습니다.")
+        else:
+            folder_id = folders[0]['id']
+            log_message("pdf_storage 폴더를 찾았습니다.")
+        
+        # 폴더 내 파일 목록 조회
+        results = drive_service.files().list(
+            q=f"'{folder_id}' in parents and mimeType='application/pdf'",
+            fields="files(id, name, createdTime, size, md5Checksum)",
+            orderBy="createdTime"
+        ).execute()
+        
+        files = results.get('files', [])
+        log_message(f"pdf_storage 폴더 내 총 {len(files)}개 PDF 파일 발견")
+        
+        # 중복 파일 처리
+        files_by_name = {}
+        files_by_checksum = {}
+        duplicates_to_delete = set()
+        
+        # 파일들을 이름과 체크섬으로 그룹화
+        for file in files:
+            name = file['name']
+            checksum = file.get('md5Checksum')
+            
+            # 이름으로 그룹화
+            if name not in files_by_name:
+                files_by_name[name] = []
+            files_by_name[name].append(file)
+            
+            # 체크섬으로 그룹화 (체크섬이 있는 경우)
+            if checksum:
+                if checksum not in files_by_checksum:
+                    files_by_checksum[checksum] = []
+                files_by_checksum[checksum].append(file)
+        
+        # 중복 파일 찾기
+        deleted_size = 0
+        duplicate_count = 0
+        
+        # 1. 동일 이름 파일 처리
+        for name, file_list in files_by_name.items():
+            if len(file_list) > 1:
+                # 생성일 기준으로 정렬
+                file_list.sort(key=lambda x: x.get('createdTime', ''), reverse=True)
+                # 가장 최신 파일을 제외한 나머지를 삭제 목록에 추가
+                for file in file_list[1:]:
+                    duplicates_to_delete.add(file['id'])
+                    duplicate_count += 1
+                    deleted_size += int(file.get('size', 0))
+                    log_message(f"중복 파일 발견 (이름): {name} - {file.get('createdTime', '')}")
+        
+        # 2. 동일 체크섬 파일 처리
+        for checksum, file_list in files_by_checksum.items():
+            if len(file_list) > 1:
+                # 생성일 기준으로 정렬
+                file_list.sort(key=lambda x: x.get('createdTime', ''), reverse=True)
+                # 가장 최신 파일을 제외한 나머지를 삭제 목록에 추가
+                for file in file_list[1:]:
+                    if file['id'] not in duplicates_to_delete:  # 아직 삭제 목록에 없는 경우만
+                        duplicates_to_delete.add(file['id'])
+                        duplicate_count += 1
+                        deleted_size += int(file.get('size', 0))
+                        log_message(f"중복 파일 발견 (내용): {file['name']} - {file.get('createdTime', '')}")
+        
+        # 중복 파일 삭제
+        if duplicates_to_delete:
+            log_message(f"\n중복 파일 정리 시작: {len(duplicates_to_delete)}개 파일")
+            for file_id in duplicates_to_delete:
+                try:
+                    drive_service.files().delete(fileId=file_id).execute()
+                except Exception as e:
+                    log_message(f"파일 삭제 실패 (ID: {file_id}): {str(e)}")
+            
+            log_message(f"중복 파일 정리 완료: {len(duplicates_to_delete)}개 파일 삭제 ({deleted_size/(1024*1024):.2f}MB 확보)")
+        
+        # 드라이브 사용량 확인
+        about = drive_service.about().get(fields="storageQuota").execute()
+        quota = about.get('storageQuota', {})
+        used = int(quota.get('usage', 0))
+        total = int(quota.get('limit', 0))
+        available = total - used
+        
+        log_message(f"\n드라이브 사용량: {used/(1024*1024*1024):.2f}GB / {total/(1024*1024*1024):.2f}GB")
+        log_message(f"남은 공간: {available/(1024*1024*1024):.2f}GB")
+        
+        # 저장 공간이 90% 이상 사용된 경우 오래된 파일부터 삭제
+        if used > total * 0.9 and files:
+            log_message("\n저장 공간이 90% 이상 사용됨. pdf_storage 폴더 내 오래된 파일 정리 시작")
+            
+            # 중복 파일 삭제 후 남은 파일들 다시 조회
+            results = drive_service.files().list(
+                q=f"'{folder_id}' in parents and mimeType='application/pdf'",
+                fields="files(id, name, createdTime, size)",
+                orderBy="createdTime"
+            ).execute()
+            
+            remaining_files = results.get('files', [])
+            remaining_files.sort(key=lambda x: x.get('createdTime', ''))  # 생성일 기준 정렬
+            
+            # 30% 정도의 파일을 삭제
+            files_to_delete = remaining_files[:int(len(remaining_files) * 0.3)]
+            old_deleted_size = 0
+            for file in files_to_delete:
+                try:
+                    drive_service.files().delete(fileId=file['id']).execute()
+                    file_size = int(file.get('size', 0))
+                    old_deleted_size += file_size
+                    log_message(f"오래된 파일 삭제됨: {file['name']} ({file_size/(1024*1024):.2f}MB)")
+                except Exception as e:
+                    log_message(f"파일 삭제 실패 {file['name']}: {str(e)}")
+            
+            log_message(f"오래된 파일 정리 완료: {len(files_to_delete)}개 파일 삭제 (총 {old_deleted_size/(1024*1024):.2f}MB 추가 확보)")
+        
+        # 최종 정리 결과
+        total_deleted_size = deleted_size + (old_deleted_size if 'old_deleted_size' in locals() else 0)
+        if total_deleted_size > 0:
+            log_message(f"\n총 정리 결과: {total_deleted_size/(1024*1024):.2f}MB 공간 확보")
+        
+        return folder_id
+    except Exception as e:
+        log_message(f"드라이브 공간 확인 중 오류: {str(e)}")
+        return None
+
 def save_to_server(driver, download_url, file_name):
     """PDF 파일을 구글 드라이브에 업로드"""
     try:
@@ -479,10 +625,16 @@ def save_to_server(driver, download_url, file_name):
                     drive_service = build('drive', 'v3', credentials=credentials)
                     log_message("구글 드라이브 서비스 인증 완료")
                     
+                    # 드라이브 공간 확인 및 정리
+                    folder_id = check_and_clean_drive_space(drive_service)
+                    if not folder_id:
+                        log_message("드라이브 공간 확인 실패")
+                        return None
+                    
                     # 기존 파일 검색
                     try:
                         results = drive_service.files().list(
-                            q=f"name='{safe_filename}' and '1dnb8Rz-WTW-bCFvoU99q0DUcCb71HSTq' in parents",
+                            q=f"name='{safe_filename}' and '{folder_id}' in parents",
                             spaces='drive'
                         ).execute()
                         
@@ -503,7 +655,7 @@ def save_to_server(driver, download_url, file_name):
                         # 파일 메타데이터 설정
                         file_metadata = {
                             'name': safe_filename,
-                            'parents': ['1dnb8Rz-WTW-bCFvoU99q0DUcCb71HSTq']  # 구글 드라이브 폴더 ID
+                            'parents': [folder_id]  # pdf_storage 폴더 ID
                         }
                         
                         # 파일 업로드
