@@ -430,11 +430,13 @@ def upload_to_ftp(file_content, remote_filename):
 def save_to_server(driver, download_url, file_name):
     """PDF 파일을 구글 드라이브에 업로드"""
     try:
+        log_message(f"\n=== PDF 파일 저장 시작 ===")
+        log_message(f"다운로드 URL: {download_url}")
+        log_message(f"파일명: {file_name}")
+        
         # 파일명에서 특수문자 제거 및 한글 처리
         safe_filename = "".join([c for c in file_name if c.isalnum() or c in (' ', '-', '_', '.', ')')]).rstrip()
-        
-        # 원본 파일명 사용 (타임스탬프 제거)
-        final_filename = safe_filename
+        log_message(f"정제된 파일명: {safe_filename}")
         
         # 현재 세션의 쿠키 가져오기
         cookies = driver.get_cookies()
@@ -442,81 +444,118 @@ def save_to_server(driver, download_url, file_name):
         for cookie in cookies:
             session.cookies.set(cookie['name'], cookie['value'])
         
-        # PDF 파일 다운로드
-        response = session.get(download_url, stream=True)
-        if response.status_code == 200:
-            try:
-                # 응답 내용을 메모리에 저장
-                content = response.content
-                log_message(f"PDF 파일 다운로드 완료: {len(content)} bytes")
-                
-                # 구글 드라이브 서비스 인증
-                SERVICE_ACCOUNT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'naver-452205-a733573ea425.json')
-                credentials = service_account.Credentials.from_service_account_file(
-                    SERVICE_ACCOUNT_FILE,
-                    scopes=['https://www.googleapis.com/auth/drive']
-                )
-                
-                # 드라이브 서비스 생성
-                drive_service = build('drive', 'v3', credentials=credentials)
-                
-                # 임시 파일 생성 및 저장
-                temp_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), final_filename)
-                with open(temp_file_path, 'wb') as f:
-                    f.write(content)
-                
+        # 요청 헤더 설정
+        headers = {
+            'User-Agent': driver.execute_script("return navigator.userAgent;"),
+            'Referer': driver.current_url
+        }
+        log_message("세션 및 헤더 설정 완료")
+        
+        # PDF 파일 다운로드 시도
+        try:
+            log_message("파일 다운로드 시도 중...")
+            response = session.get(download_url, headers=headers, stream=True, timeout=30)
+            log_message(f"서버 응답 상태 코드: {response.status_code}")
+            log_message(f"응답 헤더: {dict(response.headers)}")
+            
+            if response.status_code == 200:
                 try:
-                    # 파일 메타데이터 설정
-                    file_metadata = {
-                        'name': final_filename,
-                        'parents': ['1dnb8Rz-WTW-bCFvoU99q0DUcCb71HSTq']  # 구글 드라이브 폴더 ID
-                    }
+                    # 응답 내용을 메모리에 저장
+                    content = response.content
+                    content_length = len(content)
+                    log_message(f"파일 다운로드 완료: {content_length} bytes")
                     
-                    # 파일 업로드
-                    media = MediaFileUpload(temp_file_path, mimetype='application/pdf', resumable=True)
-                    file = drive_service.files().create(
-                        body=file_metadata,
-                        media_body=media,
-                        fields='id, webViewLink'
-                    ).execute()
+                    if content_length < 1000:  # 파일이 너무 작은 경우
+                        log_message(f"경고: 다운로드된 파일이 너무 작습니다 ({content_length} bytes)")
+                        try:
+                            log_message("응답 내용 확인:")
+                            log_message(content.decode('utf-8')[:500])  # 텍스트로 변환 시도
+                        except:
+                            log_message("응답 내용을 텍스트로 변환할 수 없음")
+                        return None
                     
-                    # 파일 권한 설정 (공개)
-                    permission = {
-                        'type': 'anyone',
-                        'role': 'reader'
-                    }
-                    drive_service.permissions().create(
-                        fileId=file.get('id'),
-                        body=permission
-                    ).execute()
+                    # 구글 드라이브 서비스 인증
+                    SERVICE_ACCOUNT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'naver-452205-a733573ea425.json')
+                    credentials = service_account.Credentials.from_service_account_file(
+                        SERVICE_ACCOUNT_FILE,
+                        scopes=['https://www.googleapis.com/auth/drive']
+                    )
                     
-                    # 웹뷰 링크를 직접 다운로드 링크로 변환
-                    download_link = convert_to_direct_download_link(file.get('webViewLink'))
+                    # 드라이브 서비스 생성
+                    drive_service = build('drive', 'v3', credentials=credentials)
+                    log_message("구글 드라이브 서비스 인증 완료")
                     
-                    log_message(f"구글 드라이브 업로드 완료: {download_link}")
+                    # 임시 파일 생성 및 저장
+                    temp_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), safe_filename)
+                    with open(temp_file_path, 'wb') as f:
+                        f.write(content)
+                    log_message(f"임시 파일 저장 완료: {temp_file_path}")
                     
-                    # 임시 파일 삭제
-                    os.remove(temp_file_path)
-                    
-                    return download_link
-                    
-                except Exception as e:
-                    log_message(f"구글 드라이브 업로드 중 오류: {str(e)}")
-                    if os.path.exists(temp_file_path):
+                    try:
+                        # 파일 메타데이터 설정
+                        file_metadata = {
+                            'name': safe_filename,
+                            'parents': ['1dnb8Rz-WTW-bCFvoU99q0DUcCb71HSTq']  # 구글 드라이브 폴더 ID
+                        }
+                        
+                        # 파일 업로드
+                        media = MediaFileUpload(temp_file_path, mimetype='application/pdf', resumable=True)
+                        file = drive_service.files().create(
+                            body=file_metadata,
+                            media_body=media,
+                            fields='id, webViewLink'
+                        ).execute()
+                        
+                        # 파일 권한 설정 (공개)
+                        permission = {
+                            'type': 'anyone',
+                            'role': 'reader'
+                        }
+                        drive_service.permissions().create(
+                            fileId=file.get('id'),
+                            body=permission
+                        ).execute()
+                        
+                        # 웹뷰 링크를 직접 다운로드 링크로 변환
+                        download_link = convert_to_direct_download_link(file.get('webViewLink'))
+                        log_message(f"구글 드라이브 업로드 완료: {download_link}")
+                        
+                        # 임시 파일 삭제
                         os.remove(temp_file_path)
+                        log_message("임시 파일 삭제 완료")
+                        
+                        return download_link
+                        
+                    except Exception as e:
+                        log_message(f"구글 드라이브 업로드 중 오류: {str(e)}")
+                        if os.path.exists(temp_file_path):
+                            os.remove(temp_file_path)
+                        return None
+                        
+                except Exception as e:
+                    log_message(f"파일 처리 중 오류: {str(e)}")
                     return None
                     
-            except Exception as e:
-                log_message(f"파일 처리 중 오류: {str(e)}")
+            else:
+                log_message(f"PDF 다운로드 실패: 상태 코드 {response.status_code}")
+                try:
+                    log_message("오류 응답 내용:")
+                    log_message(response.text[:500])
+                except:
+                    pass
                 return None
-                    
-        else:
-            log_message(f"PDF 다운로드 실패: {response.status_code}")
+                
+        except requests.exceptions.RequestException as e:
+            log_message(f"파일 다운로드 요청 중 오류: {str(e)}")
             return None
             
     except Exception as e:
-        log_message(f"파일 저장 중 오류: {str(e)}")
+        log_message(f"파일 저장 중 예외 발생: {str(e)}")
+        import traceback
+        log_message(f"상세 오류: {traceback.format_exc()}")
         return None
+    finally:
+        log_message("=== PDF 파일 저장 종료 ===\n")
 
 def get_pdf_download_links(driver, content_element):
     try:
@@ -530,39 +569,79 @@ def get_pdf_download_links(driver, content_element):
                 log_message("재로그인 시도 실패")
                 return []
         
-        # 첨부파일 영역에서 PDF 링크 찾기
-        attachment_areas = driver.find_elements(By.CSS_SELECTOR, ".attached_file_in_conts")
-        for area in attachment_areas:
-            try:
-                # PDF 링크 찾기 (수정된 선택자 사용)
-                download_links = area.find_elements(By.CSS_SELECTOR, "a[id='content_download']")
+        # 현재 페이지 URL 로깅
+        current_url = driver.current_url
+        log_message(f"현재 페이지 URL: {current_url}")
+        
+        try:
+            # 페이지 소스 출력 (디버깅용)
+            page_source = driver.page_source
+            log_message("페이지 소스 확인:")
+            log_message(page_source[:500])  # 처음 500자만 로깅
+            
+            # 모든 링크 요소 찾기
+            all_links = driver.find_elements(By.TAG_NAME, "a")
+            log_message(f"페이지 내 전체 링크 수: {len(all_links)}")
+            
+            # PDF 다운로드 링크 찾기 (여러 선택자 시도)
+            download_selectors = [
+                "a[id='content_download']",
+                "a[href*='download_file.php']",
+                ".attached_file_in_conts a",
+                "a[href*='.pdf']"
+            ]
+            
+            for selector in download_selectors:
+                log_message(f"선택자 {selector} 시도 중...")
+                download_links = driver.find_elements(By.CSS_SELECTOR, selector)
                 
-                for download_link in download_links:
-                    try:
-                        href = download_link.get_attribute("href")
-                        file_name = download_link.find_element(By.CSS_SELECTOR, "span").text.strip()
-                        
-                        if href and file_name:
-                            log_message(f"PDF 파일 발견: {file_name}")
-                            log_message(f"다운로드 URL: {href}")
+                if download_links:
+                    log_message(f"선택자 {selector}로 {len(download_links)}개의 링크 발견")
+                    
+                    for download_link in download_links:
+                        try:
+                            href = download_link.get_attribute("href")
+                            # 링크 텍스트나 span 내부 텍스트에서 파일명 추출 시도
+                            file_name = ""
+                            try:
+                                # span 태그 내부 텍스트 확인
+                                span = download_link.find_element(By.TAG_NAME, "span")
+                                file_name = span.text.strip()
+                            except:
+                                # 직접 링크 텍스트 사용
+                                file_name = download_link.text.strip()
                             
-                            # PDF 파일을 서버에 저장
-                            server_url = save_to_server(driver, href, file_name)
-                            
-                            if server_url:
-                                pdf_info_list.append({
-                                    "file_name": file_name,
-                                    "download_url": server_url
-                                })
-                                log_message(f"PDF 파일 처리 완료: {file_name}")
-                                log_message(f"서버 URL: {server_url}")
-                    except Exception as e:
-                        log_message(f"개별 PDF 링크 처리 중 오류: {str(e)}")
-                        continue
-                        
-            except Exception as e:
-                log_message(f"첨부파일 영역 처리 중 오류: {str(e)}")
-                continue
+                            # href나 파일명이 비어있지 않은 경우에만 처리
+                            if href and file_name:
+                                log_message(f"PDF 파일 발견:")
+                                log_message(f"- 파일명: {file_name}")
+                                log_message(f"- 다운로드 URL: {href}")
+                                
+                                # PDF 파일을 서버에 저장
+                                server_url = save_to_server(driver, href, file_name)
+                                
+                                if server_url:
+                                    pdf_info_list.append({
+                                        "file_name": file_name,
+                                        "download_url": server_url
+                                    })
+                                    log_message(f"PDF 파일 처리 완료: {file_name}")
+                                    log_message(f"서버 URL: {server_url}")
+                                else:
+                                    log_message(f"PDF 파일 저장 실패: {file_name}")
+                        except Exception as e:
+                            log_message(f"개별 PDF 링크 처리 중 오류: {str(e)}")
+                            continue
+                else:
+                    log_message(f"선택자 {selector}로 링크를 찾을 수 없음")
+            
+            if not pdf_info_list:
+                log_message("어떤 선택자로도 PDF 링크를 찾을 수 없음")
+                
+        except Exception as e:
+            log_message(f"PDF 링크 검색 중 오류: {str(e)}")
+            import traceback
+            log_message(f"상세 오류: {traceback.format_exc()}")
         
         return pdf_info_list
     except Exception as e:
@@ -603,7 +682,17 @@ def crawl_boss_pdf():
         options.add_argument('--headless')  # 헤드리스 모드
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
-        driver = webdriver.Chrome(options=options)
+        options.add_argument('--disable-gpu')
+        
+        # User-Agent 설정
+        options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36')
+        
+        if os.path.exists('/usr/bin/chromium-browser'):  # GitHub Actions 환경
+            options.binary_location = '/usr/bin/chromium-browser'
+            chrome_driver_path = '/usr/bin/chromedriver'
+            driver = webdriver.Chrome(executable_path=chrome_driver_path, options=options)
+        else:  # 로컬 환경
+            driver = webdriver.Chrome(options=options)
         
         # 로그인 시도
         if not login_to_iboss(driver):
@@ -743,11 +832,7 @@ if __name__ == "__main__":
     print("크롤링 시작:", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     try:
         # 드라이버 초기화
-        options = webdriver.ChromeOptions()
-        options.add_argument('--headless')  # 헤드리스 모드
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        driver = webdriver.Chrome(options=options)
+        driver = setup_chrome_driver()
         
         # 크롤링 실행
         results = crawl_boss_pdf()
@@ -764,7 +849,10 @@ if __name__ == "__main__":
                 ]
                 
                 # 서비스 계정 JSON 파일 경로 설정
-                SERVICE_ACCOUNT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'naver-452205-a733573ea425.json')
+                SERVICE_ACCOUNT_FILE = 'naver-452205-a733573ea425.json'
+                if not os.path.exists(SERVICE_ACCOUNT_FILE):
+                    SERVICE_ACCOUNT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), SERVICE_ACCOUNT_FILE)
+                
                 print(f"서비스 계정 파일 경로: {SERVICE_ACCOUNT_FILE}")
                 print(f"파일 존재 여부: {os.path.exists(SERVICE_ACCOUNT_FILE)}")
                 
