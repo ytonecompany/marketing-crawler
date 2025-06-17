@@ -225,8 +225,8 @@ def crawl_google_ads_announcements(html_content):
     # BeautifulSoup 객체 생성
     soup = BeautifulSoup(html_content, 'html.parser')
     
-    # 공지사항 목록 찾기 (새로운 HTML 구조)
-    announcements = soup.find_all('div', class_='article-container')
+    # 공지사항 목록 찾기
+    announcements = soup.find_all('li', class_='announcement__post')
     
     # 결과를 저장할 리스트
     results = []
@@ -234,19 +234,17 @@ def crawl_google_ads_announcements(html_content):
     for announcement in announcements:
         try:
             # 제목 추출
-            title_elem = announcement.find('h2', class_='title')
-            title = title_elem.text.strip() if title_elem else ""
+            title = announcement.find('h2', class_='announcement__post-title').text.strip()
             
             # 날짜 추출
-            date_elem = announcement.find('div', class_='date')
-            date_str = date_elem.text.strip() if date_elem else ""
+            date_str = announcement.find('h3', class_='announcement__post-sub-head').text.strip()
             
             # 내용 추출
-            content_elem = announcement.find('div', class_='article-content')
-            content = content_elem.text.strip() if content_elem else ""
+            content = announcement.find('div', class_='announcement__post-body-content').text.strip()
             
             # 링크 추출
-            link = title_elem.find('a')['href'] if title_elem and title_elem.find('a') else ""
+            link_elem = announcement.find('a', class_='announcement__post-body-read-more-link')
+            link = link_elem['href'] if link_elem else ""
             if link and not link.startswith('http'):
                 link = f"https://support.google.com{link}"
             
