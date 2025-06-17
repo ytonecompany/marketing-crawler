@@ -150,7 +150,7 @@ def crawl_and_update_sheet():
         
         try:
             print("페이지 접속 시도...")
-            driver.get("https://ads.google.com/intl/ko_kr/home/resources/announcements/")
+            driver.get("https://support.google.com/google-ads/announcements/9048695")
             
             # 페이지가 완전히 로드될 때까지 충분히 기다림
             time.sleep(10)
@@ -225,8 +225,8 @@ def crawl_google_ads_announcements(html_content):
     # BeautifulSoup 객체 생성
     soup = BeautifulSoup(html_content, 'html.parser')
     
-    # 공지사항 목록 찾기
-    announcements = soup.find_all('li', class_='announcement__post')
+    # 공지사항 목록 찾기 (새로운 HTML 구조)
+    announcements = soup.find_all('div', class_='article-container')
     
     # 결과를 저장할 리스트
     results = []
@@ -234,28 +234,34 @@ def crawl_google_ads_announcements(html_content):
     for announcement in announcements:
         try:
             # 제목 추출
-            title = announcement.find('h2', class_='announcement__post-title').text.strip()
+            title_elem = announcement.find('h2', class_='title')
+            title = title_elem.text.strip() if title_elem else ""
             
             # 날짜 추출
-            date_str = announcement.find('h3', class_='announcement__post-sub-head').text.strip()
+            date_elem = announcement.find('div', class_='date')
+            date_str = date_elem.text.strip() if date_elem else ""
             
             # 내용 추출
-            content = announcement.find('div', class_='announcement__post-body-content').text.strip()
+            content_elem = announcement.find('div', class_='article-content')
+            content = content_elem.text.strip() if content_elem else ""
             
             # 링크 추출
-            link = announcement.find('a', class_='announcement__post-body-read-more-link')['href']
+            link = title_elem.find('a')['href'] if title_elem and title_elem.find('a') else ""
+            if link and not link.startswith('http'):
+                link = f"https://support.google.com{link}"
             
             # 카테고리 (기본값 설정)
             category = "일반"
             
             # 결과 딕셔너리에 저장
-            results.append({
-                'title': title,
-                'category': category,
-                'date': date_str,
-                'content': content,
-                'link': f"https://support.google.com{link}"
-            })
+            if title and date_str:  # 제목과 날짜가 있는 경우만 저장
+                results.append({
+                    'title': title,
+                    'category': category,
+                    'date': date_str,
+                    'content': content,
+                    'link': link
+                })
             
         except Exception as e:
             print(f"Error processing announcement: {e}")
