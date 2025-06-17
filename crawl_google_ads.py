@@ -19,7 +19,7 @@ import pandas as pd
 import argparse
 from gspread.exceptions import APIError, SpreadsheetNotFound, WorksheetNotFound
 import os
-
+import openai
 import logging
 
 # 환경 확인 (서버인지 로컬인지)
@@ -46,6 +46,32 @@ logging.basicConfig(
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 SPREADSHEET_ID = '1shWpyaGrQF00YKkmYGftL2IAEOgmZ8kjw2s-WKbdyGg'
 RANGE_NAME = 'Google_Ads!A2:H'
+
+# OpenAI API 키 설정
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+openai.api_key = OPENAI_API_KEY
+
+def get_korean_summary(text):
+    """OpenAI API를 사용하여 영문 텍스트를 한글로 요약"""
+    try:
+        if not OPENAI_API_KEY:
+            return ""  # API 키가 없으면 빈 문자열 반환
+            
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that summarizes English text in Korean."},
+                {"role": "user", "content": f"Please summarize the following text in Korean (100 characters or less):\n\n{text}"}
+            ],
+            max_tokens=200,
+            temperature=0.7
+        )
+        
+        summary = response.choices[0].message.content.strip()
+        return summary
+    except Exception as e:
+        print(f"요약 생성 중 오류 발생: {str(e)}")
+        return ""
 
 def setup_google_sheets():
     # 필요한 모든 스코프 추가
@@ -101,24 +127,21 @@ def setup_google_sheets():
         print(f"Google Sheets 설정 중 오류 발생: {str(e)}")
         raise
 
-def parse_korean_date(date_str):
-    """한글 날짜를 datetime 객체로 변환"""
+def parse_date(date_str):
+    """날짜 문자열을 datetime 객체로 변환"""
     try:
-        # "2024년 2월 20일" 형식의 문자열에서 숫자만 추출
-        numbers = re.findall(r'\d+', date_str)
-        if len(numbers) == 3:
-            return datetime(int(numbers[0]), int(numbers[1]), int(numbers[2]))
+        # "June 12, 2025" 형식의 날짜를 파싱
+        return datetime.strptime(date_str, "%B %d, %Y")
     except Exception as e:
         print(f"날짜 파싱 오류: {e}")
-    return None
+        return None
 
-def is_within_6_months(date_str):
-    """날짜가 현재로부터 6개월 이내인지 확인"""
-    date = parse_korean_date(date_str)
+def is_after_2025_january(date_str):
+    """날짜가 2025년 1월 이후인지 확인"""
+    date = parse_date(date_str)
     if not date:
         return False
-    six_months_ago = datetime.now() - timedelta(days=180)
-    return date >= six_months_ago
+    return date >= datetime(2025, 1, 1)
 
 def get_existing_titles(sheet):
     """시트에서 기존 공지사항 제목 목록 가져오기"""
@@ -189,13 +212,16 @@ def crawl_and_update_sheet():
                 new_data = []
                 for announcement in announcements:
                     if announcement['title'] not in existing_titles:
+                        # 한글 요약 생성
+                        korean_summary = get_korean_summary(announcement['content'])
+                        
                         new_data.append([
                             announcement['title'],
                             announcement['category'],
                             announcement['date'],
                             announcement['link'],
                             announcement['content'],
-                            '',  # 요약 (나중에 채워질 예정)
+                            korean_summary,  # 한글 요약 추가
                             'N',  # 중요 공지 여부
                             datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 크롤링 시간
                         ])
@@ -238,6 +264,10 @@ def crawl_google_ads_announcements(html_content):
             
             # 날짜 추출
             date_str = announcement.find('h3', class_='announcement__post-sub-head').text.strip()
+            
+            # 2025년 1월 이후 게시글만 처리
+            if not is_after_2025_january(date_str):
+                continue
             
             # 내용 추출
             content = announcement.find('div', class_='announcement__post-body-content').text.strip()
