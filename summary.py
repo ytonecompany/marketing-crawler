@@ -37,7 +37,7 @@ except KeyError:
 
 # Google Sheets 설정
 SPREADSHEET_ID = '1shWpyaGrQF00YKkmYGftL2IAEOgmZ8kjw2s-WKbdyGg'
-SHEET_NAMES = ['Naver_Ads', 'Google_Ads', 'Meta_Ads', 'Boss_pdf', 'Boss_pdf2']
+SHEET_NAMES = ['Naver_Ads', 'Google_Ads', 'Meta_Ads', 'Boss_pdf', 'Boss_pdf2', 'Global_Ads']
 # 30년차 조언이 필요한 시트 목록
 ADVICE_SHEET_NAMES = ['Naver_Ads', 'Google_Ads', 'Meta_Ads']
 # 추가 의견이 필요한 시트 목록 - 빈 배열에서 필요한 시트로 변경
@@ -749,7 +749,8 @@ def translate_to_korean(text):
 
 def process_translations(sheet):
     """시트의 E열 내용을 번역하여 I열에 저장"""
-    if sheet.title not in SHEET_NAMES:
+    # Global_Ads 시트만 번역 처리
+    if sheet.title != 'Global_Ads':
         return 0
     
     print(f"{sheet.title} 시트의 번역 처리 중...")
