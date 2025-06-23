@@ -242,14 +242,18 @@ def generate_importance_and_actions(content, summary=None):
 광고 플랫폼의 변경사항이나 공지사항을 보고 해당 변경이 왜 중요한지 명확하게 설명해주세요.
 
 다음 내용에 대해 '본 공지(변경사항)이 왜 중요한가?'라는 질문에 답변해주세요:
-- 이 변경이 마케터/광고주에게 미치는 영향
-- 이 변경의 잠재적인 긍정적/부정적 측면
-- 무시할 경우 발생할 수 있는 결과
+- 이 변경이 마케터/광고주에게 미치는 영향을 구체적으로 설명
+- 이 변경의 잠재적인 긍정적/부정적 측면을 실무적 관점에서 설명
+- 무시할 경우 발생할 수 있는 구체적인 결과나 리스크
+
+답변 작성 시 주의사항:
+1. 절대로 날짜나 시간 표현을 포함하지 마세요
+2. 대신 변경사항의 본질적 중요성과 실무적 영향에 집중하세요
+3. 구체적이고 실용적인 관점에서 설명하세요
+4. "~해야 합니다", "~이 중요합니다"와 같은 일반적인 표현 대신 구체적인 영향과 결과를 설명하세요
 
 답변은 명확하고 간결하게 작성하되, 실무자가 이해하기 쉽도록 작성해주세요.
-전체 내용은 200자 이내로 제한하고, 모든 문장이 완전하게 끝나도록 해주세요.
-
-중요: 답변에 날짜(예: 5월 22일, 2024년 등)를 포함하지 마세요. 시간적 표현 대신 변경사항의 본질적 중요성에 집중해주세요."""},
+전체 내용은 200자 이내로 제한하고, 모든 문장이 완전하게 끝나도록 해주세요."""},
                     {"role": "user", "content": input_text}
                 ],
                 max_tokens=200,
@@ -647,14 +651,12 @@ def generate_missing_additional_advice(sheet):
 광고 플랫폼의 변경사항이나 공지사항을 보고 해당 변경이 왜 중요한지 명확하게 설명해주세요.
 
 다음 내용에 대해 '본 공지(변경사항)이 왜 중요한가?'라는 질문에 답변해주세요:
-- 이 변경이 마케터/광고주에게 미치는 영향
-- 이 변경의 잠재적인 긍정적/부정적 측면
-- 무시할 경우 발생할 수 있는 결과
+- 이 변경이 마케터/광고주에게 미치는 영향을 구체적으로 설명
+- 이 변경의 잠재적인 긍정적/부정적 측면을 실무적 관점에서 설명
+- 무시할 경우 발생할 수 있는 구체적인 결과나 리스크
 
 답변은 명확하고 간결하게 작성하되, 실무자가 이해하기 쉽도록 작성해주세요.
-전체 내용은 200자 이내로 제한하고, 모든 문장이 완전하게 끝나도록 해주세요.
-
-중요: 답변에 날짜(예: 5월 22일, 2024년 등)를 포함하지 마세요. 시간적 표현 대신 변경사항의 본질적 중요성에 집중해주세요."""},
+전체 내용은 200자 이내로 제한하고, 모든 문장이 완전하게 끝나도록 해주세요."""},
                             {"role": "user", "content": input_text}
                         ],
                         max_tokens=200,
@@ -705,6 +707,103 @@ def generate_missing_additional_advice(sheet):
     
     return updated_count
 
+def translate_to_korean(text):
+    """OpenAI API를 사용하여 텍스트를 한글로 번역"""
+    if not text:
+        return ""
+    
+    max_retries = 3
+    retry_delay = 2  # 초 단위
+    
+    for retry in range(max_retries):
+        try:
+            client = OpenAI(api_key=api_key)
+            
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "당신은 전문 번역가입니다. 주어진 텍스트를 한국어로 번역해주세요. 번역은 자연스러운 한국어로 하되, 전문 용어는 정확하게 유지해주세요."},
+                    {"role": "user", "content": f"다음 텍스트를 한국어로 번역해주세요:\n\n{text}"}
+                ],
+                max_tokens=1000,
+                temperature=0.3
+            )
+            
+            translation = response.choices[0].message.content.strip()
+            return translation
+            
+        except Exception as e:
+            error_msg = f"번역 중 오류 발생 (시도 {retry+1}/{max_retries}): {str(e)}"
+            print(error_msg)
+            logging.error(error_msg)
+            
+            if retry < max_retries - 1:
+                print(f"{retry_delay}초 후 재시도...")
+                time.sleep(retry_delay)
+                retry_delay *= 2
+            else:
+                print("최대 재시도 횟수 초과, 번역 실패")
+                return "번역 중 오류가 발생했습니다."
+    
+    return "번역 중 오류가 발생했습니다."
+
+def process_translations(sheet):
+    """시트의 E열 내용을 번역하여 I열에 저장"""
+    if sheet.title not in SHEET_NAMES:
+        return 0
+    
+    print(f"{sheet.title} 시트의 번역 처리 중...")
+    
+    # 모든 데이터 가져오기
+    data = sheet.get_all_values()
+    
+    if len(data) <= 1:  # 헤더만 있는 경우
+        return 0
+    
+    # 헤더 제외한 데이터
+    rows = data[1:]
+    
+    # 번역이 필요한 행 찾기 (E열에 내용이 있고 I열이 비어있거나 "번역 중 오류가 발생했습니다." 인 경우)
+    rows_to_update = []
+    for i, row in enumerate(rows, start=2):
+        # E열은 있고
+        if len(row) >= 5 and row[4]:
+            # I열이 없거나 비어있거나 에러 메시지인 경우에만 번역
+            if (len(row) < 9 or 
+                not row[8] or 
+                row[8].strip() == "번역 중 오류가 발생했습니다."):
+                rows_to_update.append((i, row))
+    
+    print(f"번역이 필요한 항목 수: {len(rows_to_update)}")
+    
+    # 번역 처리
+    updated_count = 0
+    for row_idx, row in rows_to_update:
+        try:
+            content = row[4]  # E열이 내용 열
+            print(f"'{row[0]}' 번역 중...")
+            
+            # 번역 수행
+            translation = translate_to_korean(content)
+            
+            # 번역 결과가 에러가 아닌 경우에만 업데이트
+            if translation != "번역 중 오류가 발생했습니다.":
+                sheet.update_cell(row_idx, 9, translation)  # 9번째 열(I열)이 번역 열
+                updated_count += 1
+                print(f"'{row[0]}' 번역 완료")
+            else:
+                print(f"'{row[0]}' 번역 실패")
+            
+            # API 호출 제한 방지를 위한 대기
+            time.sleep(1)
+            
+        except Exception as e:
+            error_msg = f"행 {row_idx} 번역 중 오류 발생: {str(e)}"
+            print(error_msg)
+            logging.error(error_msg)
+    
+    return updated_count
+
 def run_summary():
     """모든 시트에 대해 요약 처리 실행"""
     try:
@@ -718,6 +817,7 @@ def run_summary():
         total_updated = 0
         total_advice = 0
         total_additional_advice = 0
+        total_translations = 0
         
         # 시트별 처리 통계
         sheet_stats = {}
@@ -735,6 +835,7 @@ def run_summary():
                     'updated': 0,
                     'advice_updated': 0,
                     'additional_advice_updated': 0,
+                    'translations_updated': 0,
                     'errors': 0
                 }
                 
@@ -767,22 +868,31 @@ def run_summary():
                     print(f"{sheet_name} 시트 추가 의견 처리 완료: {additional_advice_updated}개 항목에 추가 의견 생성됨")
                     logging.info(f"{sheet_name} 시트 추가 의견 처리 완료: {additional_advice_updated}개 항목에 추가 의견 생성됨")
                 
+                # 번역 처리
+                translations_updated = process_translations(sheet)
+                total_translations += translations_updated
+                sheet_stats[sheet_name]['translations_updated'] = translations_updated
+                print(f"{sheet_name} 시트 번역 처리 완료: {translations_updated}개 항목 번역됨")
+                logging.info(f"{sheet_name} 시트 번역 처리 완료: {translations_updated}개 항목 번역됨")
+                
                 # 누락된 열 확인 (중요성만 - I열 제언은 비활성화)
                 if sheet_name in ADDITIONAL_ADVICE_SHEET_NAMES:
                     all_data = sheet.get_all_values()
                     if len(all_data) > 1:  # 헤더 제외
                         rows = all_data[1:]
                         missing_importance = 0
+                        missing_translations = 0
                         
                         for row in rows:
                             if len(row) >= 5 and row[4]:  # 내용이 있을 때
                                 if len(row) < 8 or not row[7]:  # 중요성 누락
                                     missing_importance += 1
-                                # I열 제언 누락 체크 비활성화
+                                if len(row) < 9 or not row[8]:  # 번역 누락
+                                    missing_translations += 1
                         
-                        if missing_importance > 0:
-                            print(f"{sheet_name} 시트 완료 후 확인: 아직 중요성 누락 {missing_importance}개 (I열 제언은 비활성화됨)")
-                            logging.warning(f"{sheet_name} 시트 완료 후 확인: 아직 중요성 누락 {missing_importance}개 (I열 제언은 비활성화됨)")
+                        if missing_importance > 0 or missing_translations > 0:
+                            print(f"{sheet_name} 시트 완료 후 확인: 중요성 누락 {missing_importance}개, 번역 누락 {missing_translations}개")
+                            logging.warning(f"{sheet_name} 시트 완료 후 확인: 중요성 누락 {missing_importance}개, 번역 누락 {missing_translations}개")
                 
                 print(f"==== {sheet_name} 시트 처리 완료: {updated}개 항목 요약됨 ====\n")
                 logging.info(f"{sheet_name} 시트 처리 완료: {updated}개 항목 요약됨")
@@ -803,11 +913,12 @@ def run_summary():
                 print(f"  - 조언 생성: {stats['advice_updated']}개")
             if sheet_name in ADDITIONAL_ADVICE_SHEET_NAMES:
                 print(f"  - 추가 의견 생성: {stats['additional_advice_updated']}개")
+            print(f"  - 번역 처리: {stats['translations_updated']}개")
             print(f"  - 오류 발생: {stats['errors']}개")
             print("")
         
-        print(f"총 {total_updated}개 항목 요약 완료, {total_advice}개 항목에 조언 추가 완료, {total_additional_advice}개 항목에 추가 의견 생성 완료")
-        logging.info(f"총 {total_updated}개 항목 요약 완료, {total_advice}개 항목에 조언 추가 완료, {total_additional_advice}개 항목에 추가 의견 생성 완료")
+        print(f"총 {total_updated}개 항목 요약 완료, {total_advice}개 항목에 조언 추가 완료, {total_additional_advice}개 항목에 추가 의견 생성 완료, {total_translations}개 항목 번역 완료")
+        logging.info(f"총 {total_updated}개 항목 요약 완료, {total_advice}개 항목에 조언 추가 완료, {total_additional_advice}개 항목에 추가 의견 생성 완료, {total_translations}개 항목 번역 완료")
         
         end_time = datetime.now()
         duration = end_time - start_time
