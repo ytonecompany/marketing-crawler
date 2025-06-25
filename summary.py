@@ -246,11 +246,12 @@ def generate_importance_and_actions(content, summary=None):
 - 이 변경의 잠재적인 긍정적/부정적 측면을 실무적 관점에서 설명
 - 무시할 경우 발생할 수 있는 구체적인 결과나 리스크
 
-답변 작성 시 주의사항:
-1. 절대로 날짜나 시간 표현을 포함하지 마세요
-2. 대신 변경사항의 본질적 중요성과 실무적 영향에 집중하세요
-3. 구체적이고 실용적인 관점에서 설명하세요
-4. "~해야 합니다", "~이 중요합니다"와 같은 일반적인 표현 대신 구체적인 영향과 결과를 설명하세요
+답변 작성 시 엄격한 제한사항:
+1. 절대로 날짜나 시간 관련 표현을 사용하지 마세요 (예: '6월 26일', '2025년', '다음 달', '이번 주' 등)
+2. 시간 표현 대신 '현재', '즉시', '지속적으로' 등의 표현을 사용하세요
+3. 변경사항의 본질적 중요성과 실무적 영향에만 집중하세요
+4. 구체적이고 실용적인 관점에서 설명하되, 시간 관련 정보는 완전히 제외하세요
+5. "~해야 합니다", "~이 중요합니다"와 같은 일반적인 표현 대신 구체적인 영향과 결과를 설명하세요
 
 답변은 명확하고 간결하게 작성하되, 실무자가 이해하기 쉽도록 작성해주세요.
 전체 내용은 200자 이내로 제한하고, 모든 문장이 완전하게 끝나도록 해주세요."""},
@@ -707,6 +708,93 @@ def generate_missing_additional_advice(sheet):
     
     return updated_count
 
+def summarize_chinese(text):
+    """OpenAI API를 사용하여 텍스트를 중국어로 요약"""
+    if not text:
+        return ""
+    
+    max_retries = 3
+    retry_delay = 2  # 초 단위
+    
+    for retry in range(max_retries):
+        try:
+            client = OpenAI(api_key=api_key)
+            
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "你是一位专业的数字营销专家。请用简洁的中文总结以下内容的要点，重点关注对营销人员有价值的信息。总结应当专业、准确，并保持在200字以内。"},
+                    {"role": "user", "content": f"请总结以下内容：\n\n{text}"}
+                ],
+                max_tokens=300,
+                temperature=0.3
+            )
+            
+            summary = response.choices[0].message.content.strip()
+            return summary
+            
+        except Exception as e:
+            error_msg = f"중국어 요약 중 오류 발생 (시도 {retry+1}/{max_retries}): {str(e)}"
+            print(error_msg)
+            logging.error(error_msg)
+            
+            if retry < max_retries - 1:
+                print(f"{retry_delay}초 후 재시도...")
+                time.sleep(retry_delay)
+                retry_delay *= 2
+            else:
+                print("최대 재시도 횟수 초과, 중국어 요약 실패")
+                return "요약 중 오류가 발생했습니다."
+    
+    return "요약 중 오류가 발생했습니다."
+
+def summarize_korean(text):
+    """OpenAI API를 사용하여 한국어 텍스트를 요약"""
+    if not text:
+        return ""
+    
+    max_retries = 3
+    retry_delay = 2  # 초 단위
+    
+    for retry in range(max_retries):
+        try:
+            client = OpenAI(api_key=api_key)
+            
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": """당신은 디지털 마케팅 전문가입니다. 
+다음 내용을 마케터의 관점에서 핵심만 간단히 요약해주세요.
+
+요약 시 다음 사항을 준수해주세요:
+1. 마케팅 실무자가 즉시 이해할 수 있도록 전문적인 용어를 적절히 사용
+2. 실무적으로 중요한 변경사항이나 영향을 우선적으로 포함
+3. 불필요한 설명이나 부연은 제외하고 핵심 정보만 전달
+4. 전체 요약은 200자 이내로 제한"""},
+                    {"role": "user", "content": f"다음 내용을 요약해주세요:\n\n{text}"}
+                ],
+                max_tokens=300,
+                temperature=0.3
+            )
+            
+            summary = response.choices[0].message.content.strip()
+            return summary
+            
+        except Exception as e:
+            error_msg = f"한국어 요약 중 오류 발생 (시도 {retry+1}/{max_retries}): {str(e)}"
+            print(error_msg)
+            logging.error(error_msg)
+            
+            if retry < max_retries - 1:
+                print(f"{retry_delay}초 후 재시도...")
+                time.sleep(retry_delay)
+                retry_delay *= 2
+            else:
+                print("최대 재시도 횟수 초과, 한국어 요약 실패")
+                return "요약 중 오류가 발생했습니다."
+    
+    return "요약 중 오류가 발생했습니다."
+
 def translate_to_korean(text):
     """OpenAI API를 사용하여 텍스트를 한글로 번역"""
     if not text:
@@ -722,7 +810,14 @@ def translate_to_korean(text):
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "당신은 전문 번역가입니다. 주어진 텍스트를 한국어로 번역해주세요. 번역은 자연스러운 한국어로 하되, 전문 용어는 정확하게 유지해주세요."},
+                    {"role": "system", "content": """당신은 디지털 마케팅 분야의 전문 번역가입니다. 
+주어진 텍스트를 한국어로 번역해주되, 다음 사항을 준수해주세요:
+
+1. 마케팅 전문 용어는 업계에서 통용되는 정확한 한국어 용어로 번역
+2. 광고 플랫폼의 기능이나 정책 관련 내용은 실무자가 이해하기 쉽게 자연스럽게 번역
+3. 기술적인 용어나 고유명사는 필요한 경우 원어를 괄호로 병기
+4. 문맥을 고려하여 의미가 정확하게 전달되도록 의역이 필요한 경우 적절히 의역
+5. 번역된 문장이 자연스러운 한국어 문장이 되도록 신경써서 번역"""},
                     {"role": "user", "content": f"다음 텍스트를 한국어로 번역해주세요:\n\n{text}"}
                 ],
                 max_tokens=1000,
@@ -748,12 +843,12 @@ def translate_to_korean(text):
     return "번역 중 오류가 발생했습니다."
 
 def process_translations(sheet):
-    """시트의 E열 내용을 번역하여 I열에 저장"""
+    """시트의 E열 내용을 처리하여 F열(중문 요약), I열(한글 번역), J열(한글 요약)에 저장"""
     # Global_Ads 시트만 번역 처리
     if sheet.title != 'Global_Ads':
         return 0
     
-    print(f"{sheet.title} 시트의 번역 처리 중...")
+    print(f"{sheet.title} 시트의 번역 및 요약 처리 중...")
     
     # 모든 데이터 가져오기
     data = sheet.get_all_values()
@@ -761,45 +856,68 @@ def process_translations(sheet):
     if len(data) <= 1:  # 헤더만 있는 경우
         return 0
     
+    # 헤더 확인 및 업데이트
+    headers = data[0]
+    if len(headers) < 10 or headers[9] != "한글 요약":
+        # J열 헤더 추가
+        sheet.update_cell(1, 10, "한글 요약")
+    
     # 헤더 제외한 데이터
     rows = data[1:]
     
-    # 번역이 필요한 행 찾기 (E열에 내용이 있고 I열이 비어있거나 "번역 중 오류가 발생했습니다." 인 경우)
+    # 처리가 필요한 행 찾기
     rows_to_update = []
     for i, row in enumerate(rows, start=2):
-        # E열은 있고
+        # E열에 내용이 있고
         if len(row) >= 5 and row[4]:
-            # I열이 없거나 비어있거나 에러 메시지인 경우에만 번역
-            if (len(row) < 9 or 
-                not row[8] or 
-                row[8].strip() == "번역 중 오류가 발생했습니다."):
+            needs_update = False
+            # F열(중문 요약)이 비어있거나 에러 메시지인 경우
+            if len(row) < 6 or not row[5] or row[5].strip() == "요약 중 오류가 발생했습니다.":
+                needs_update = True
+            # I열(한글 번역)이 비어있거나 에러 메시지인 경우
+            if len(row) < 9 or not row[8] or row[8].strip() == "번역 중 오류가 발생했습니다.":
+                needs_update = True
+            # J열(한글 요약)이 비어있거나 에러 메시지인 경우
+            if len(row) < 10 or not row[9] or row[9].strip() == "요약 중 오류가 발생했습니다.":
+                needs_update = True
+            
+            if needs_update:
                 rows_to_update.append((i, row))
     
-    print(f"번역이 필요한 항목 수: {len(rows_to_update)}")
+    print(f"처리가 필요한 항목 수: {len(rows_to_update)}")
     
-    # 번역 처리
+    # 번역 및 요약 처리
     updated_count = 0
     for row_idx, row in rows_to_update:
         try:
             content = row[4]  # E열이 내용 열
-            print(f"'{row[0]}' 번역 중...")
+            print(f"'{row[0]}' 처리 중...")
             
-            # 번역 수행
-            translation = translate_to_korean(content)
+            # 중문 요약 (F열)
+            chinese_summary = summarize_chinese(content)
+            if chinese_summary != "요약 중 오류가 발생했습니다.":
+                sheet.update_cell(row_idx, 6, chinese_summary)
+                print(f"'{row[0]}' 중문 요약 완료")
             
-            # 번역 결과가 에러가 아닌 경우에만 업데이트
-            if translation != "번역 중 오류가 발생했습니다.":
-                sheet.update_cell(row_idx, 9, translation)  # 9번째 열(I열)이 번역 열
-                updated_count += 1
-                print(f"'{row[0]}' 번역 완료")
-            else:
-                print(f"'{row[0]}' 번역 실패")
+            # 한글 번역 (I열)
+            korean_translation = translate_to_korean(content)
+            if korean_translation != "번역 중 오류가 발생했습니다.":
+                sheet.update_cell(row_idx, 9, korean_translation)
+                print(f"'{row[0]}' 한글 번역 완료")
+                
+                # 한글 요약 (J열) - 번역이 성공한 경우에만 실행
+                korean_summary = summarize_korean(korean_translation)
+                if korean_summary != "요약 중 오류가 발생했습니다.":
+                    sheet.update_cell(row_idx, 10, korean_summary)
+                    print(f"'{row[0]}' 한글 요약 완료")
+            
+            updated_count += 1
             
             # API 호출 제한 방지를 위한 대기
             time.sleep(1)
             
         except Exception as e:
-            error_msg = f"행 {row_idx} 번역 중 오류 발생: {str(e)}"
+            error_msg = f"행 {row_idx} 처리 중 오류 발생: {str(e)}"
             print(error_msg)
             logging.error(error_msg)
     
