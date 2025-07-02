@@ -843,7 +843,7 @@ def translate_to_korean(text):
     return "번역 중 오류가 발생했습니다."
 
 def process_translations(sheet):
-    """시트의 E열 내용을 처리하여 F열(중문 요약), I열(한글 번역), J열(한글 요약)에 저장"""
+    """시트의 E열 내용을 처리하여 F열(중문 요약), I열(한글 번역), J열(F열 중문요약의 한글 번역)에 저장"""
     # Global_Ads 시트만 번역 처리
     if sheet.title != 'Global_Ads':
         return 0
@@ -858,9 +858,9 @@ def process_translations(sheet):
     
     # 헤더 확인 및 업데이트
     headers = data[0]
-    if len(headers) < 10 or headers[9] != "한글 요약":
-        # J열 헤더 추가
-        sheet.update_cell(1, 10, "한글 요약")
+    if len(headers) < 10 or headers[9] != "중문요약 한글번역":
+        # J열 헤더 수정
+        sheet.update_cell(1, 10, "중문요약 한글번역")
     
     # 헤더 제외한 데이터
     rows = data[1:]
@@ -877,8 +877,8 @@ def process_translations(sheet):
             # I열(한글 번역)이 비어있거나 에러 메시지인 경우
             if len(row) < 9 or not row[8] or row[8].strip() == "번역 중 오류가 발생했습니다.":
                 needs_update = True
-            # J열(한글 요약)이 비어있거나 에러 메시지인 경우
-            if len(row) < 10 or not row[9] or row[9].strip() == "요약 중 오류가 발생했습니다.":
+            # J열(중문요약 한글번역)이 비어있거나 에러 메시지인 경우
+            if len(row) < 10 or not row[9] or row[9].strip() == "번역 중 오류가 발생했습니다.":
                 needs_update = True
             
             if needs_update:
@@ -904,12 +904,13 @@ def process_translations(sheet):
             if korean_translation != "번역 중 오류가 발생했습니다.":
                 sheet.update_cell(row_idx, 9, korean_translation)
                 print(f"'{row[0]}' 한글 번역 완료")
-                
-                # 한글 요약 (J열) - 번역이 성공한 경우에만 실행
-                korean_summary = summarize_korean(korean_translation)
-                if korean_summary != "요약 중 오류가 발생했습니다.":
-                    sheet.update_cell(row_idx, 10, korean_summary)
-                    print(f"'{row[0]}' 한글 요약 완료")
+            
+            # 중문 요약의 한글 번역 (J열) - F열의 중문 요약이 있는 경우에만 실행
+            if chinese_summary != "요약 중 오류가 발생했습니다.":
+                chinese_summary_korean = translate_to_korean(chinese_summary)
+                if chinese_summary_korean != "번역 중 오류가 발생했습니다.":
+                    sheet.update_cell(row_idx, 10, chinese_summary_korean)
+                    print(f"'{row[0]}' 중문 요약 한글 번역 완료")
             
             updated_count += 1
             
