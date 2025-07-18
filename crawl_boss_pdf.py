@@ -1209,10 +1209,55 @@ def process_missing_pdfs(sheet_name):
 if __name__ == "__main__":
     print("크롤링 시작:", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     try:
-        # PDF 링크가 없는 항목 처리
-        print("\nPDF 링크가 없는 항목 처리 시작")
+        # 1. 먼저 새로운 콘텐츠 크롤링 실행
+        print("\n=== 새로운 콘텐츠 크롤링 시작 ===")
+        new_results = crawl_boss_pdf()
+        
+        if new_results:
+            # Google Sheets에 새 데이터 추가
+            sheet = setup_google_sheets()
+            existing_titles = get_existing_titles(sheet)
+            
+            for result in new_results:
+                title = result["title"]
+                if title not in existing_titles:
+                    # PDF 링크 처리
+                    pdf_urls = []
+                    pdf_names = []
+                    
+                    if result.get("pdf_links"):
+                        pdf_urls = [link['download_url'] for link in result["pdf_links"] if link.get('download_url')]
+                        pdf_names = [link['file_name'] for link in result["pdf_links"] if link.get('file_name')]
+                    
+                    # 중요여부 판단 (키워드 기반)
+                    important_keywords = ['중요', '긴급', '필수', '공지', '알림']
+                    is_important = "중요" if any(keyword in title for keyword in important_keywords) else "일반"
+                    
+                    # 데이터 추가
+                    row_data = [
+                        title,
+                        result["date"],
+                        result["link"],
+                        ', '.join(pdf_urls) if pdf_urls else '',
+                        result.get("content", ""),
+                        is_important,
+                        ', '.join(pdf_names) if pdf_names else '',
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    ]
+                    
+                    sheet.append_row(row_data)
+                    print(f"새 데이터 추가: {title}")
+                    time.sleep(1)  # API 제한 방지
+                else:
+                    print(f"이미 존재하는 데이터: {title}")
+            
+            print(f"새로운 콘텐츠 크롤링 완료: {len(new_results)}개 항목 처리")
+        
+        # 2. PDF 링크가 없는 기존 항목 처리
+        print("\n=== PDF 링크 누락 항목 처리 시작 ===")
         process_missing_pdfs('Boss_pdf2')
-        print("모든 처리 완료")
+        
+        print("\n=== 모든 처리 완료 ===")
         
     except Exception as e:
         print(f"실행 중 오류 발생: {str(e)}")
