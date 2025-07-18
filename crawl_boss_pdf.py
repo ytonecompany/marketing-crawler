@@ -1026,10 +1026,23 @@ def crawl_boss_pdf():
                         try:
                             content_element = driver.find_element(By.CSS_SELECTOR, selector)
                             if content_element:
+                                content = content_element.text.strip()
                                 log_message(f"컨텐츠 요소 찾음: {selector}")
-                                break
+                                log_message(f"내용 길이: {len(content)} 문자")
+                                if content:  # 내용이 있으면 중단
+                                    break
                         except:
                             continue
+                    
+                    # 위의 선택자로 내용을 찾지 못한 경우, 전체 body에서 텍스트 추출
+                    if not content:
+                        try:
+                            body_element = driver.find_element(By.TAG_NAME, "body")
+                            content = body_element.text.strip()
+                            log_message(f"body 전체에서 내용 추출: {len(content)} 문자")
+                        except Exception as e:
+                            log_message(f"body에서 내용 추출 실패: {str(e)}")
+                            
                 except Exception as e:
                     log_message(f"내용 추출 중 오류: {str(e)}")
                 
@@ -1037,6 +1050,12 @@ def crawl_boss_pdf():
                 pdf_links = []
                 if content_element:
                     pdf_links = get_pdf_download_links(driver, content_element)
+                elif content:  # content_element가 없어도 content가 있으면 PDF 링크 찾기 시도
+                    try:
+                        body_element = driver.find_element(By.TAG_NAME, "body")
+                        pdf_links = get_pdf_download_links(driver, body_element)
+                    except:
+                        pass
                 
                 # 결과 저장
                 results.append({
@@ -1074,8 +1093,8 @@ def crawl_boss_pdf():
         except:
             pass
 
-def process_missing_pdfs(sheet_name):
-    """PDF 링크가 없는 항목들을 처리"""
+def process_missing_content(sheet_name):
+    """PDF 링크가 없거나 E열 내용이 비어있는 항목들을 처리"""
     try:
         # Google Sheets 설정
         sheet = setup_google_sheets()
@@ -1125,10 +1144,21 @@ def process_missing_pdfs(sheet_name):
             # 각 행 처리
             for idx, row in enumerate(all_data[1:], start=2):  # 2부터 시작 (헤더 제외)
                 try:
-                    if len(row) >= 4 and not row[3].strip():  # D열(PDF 링크)이 비어있는 경우
-                        title = row[0]
-                        post_link = row[2]
-                        log_message(f"\n처리 중: {title}")
+                    # D열(PDF 링크)이 비어있거나 E열(내용)이 비어있는 경우 처리
+                    needs_processing = False
+                    processing_type = ""
+                    
+                    if len(row) >= 4 and not row[3].strip():  # D열(PDF 링크)이 비어있음
+                        needs_processing = True
+                        processing_type = "PDF 링크"
+                    elif len(row) >= 5 and not row[4].strip():  # E열(내용)이 비어있음
+                        needs_processing = True
+                        processing_type = "내용"
+                    
+                    if needs_processing:
+                        title = row[0] if len(row) > 0 else "제목 없음"
+                        post_link = row[2] if len(row) > 2 else ""
+                        log_message(f"\n처리 중 ({processing_type} 누락): {title}")
                         log_message(f"게시물 링크: {post_link}")
                         
                         if not post_link or not post_link.strip():
@@ -1162,39 +1192,71 @@ def process_missing_pdfs(sheet_name):
                         ]
                         
                         content_element = None
+                        content_text = ""
+                        
+                        # 내용 추출
                         for selector in content_selectors:
                             try:
                                 content_element = driver.find_element(By.CSS_SELECTOR, selector)
                                 if content_element:
+                                    content_text = content_element.text.strip()
                                     log_message(f"컨텐츠 요소 찾음: {selector}")
-                                    # 컨텐츠 요소의 HTML 출력
-                                    content_html = content_element.get_attribute('innerHTML')
-                                    log_message("컨텐츠 요소 HTML:")
-                                    log_message(content_html[:500])  # 처음 500자만 출력
-                                    break
+                                    log_message(f"내용 길이: {len(content_text)} 문자")
+                                    if content_text:
+                                        break
                             except:
                                 continue
+                        
+                        # 위의 선택자로 내용을 찾지 못한 경우, 전체 body에서 텍스트 추출
+                        if not content_text:
+                            try:
+                                body_element = driver.find_element(By.TAG_NAME, "body")
+                                content_text = body_element.text.strip()
+                                content_element = body_element
+                                log_message(f"body 전체에서 내용 추출: {len(content_text)} 문자")
+                            except Exception as e:
+                                log_message(f"body에서 내용 추출 실패: {str(e)}")
                         
                         if not content_element:
                             log_message("컨텐츠 요소를 찾을 수 없음, 전체 페이지에서 PDF 검색")
                             content_element = driver.find_element(By.TAG_NAME, "body")
                         
-                        # PDF 다운로드 링크 찾기
-                        pdf_links = get_pdf_download_links(driver, content_element)
+                        # 처리 유형에 따른 업데이트
+                        updated = False
                         
-                        if pdf_links:
-                            # PDF 링크와 파일명을 콤마로 구분하여 저장
-                            pdf_urls = [link['download_url'] for link in pdf_links if link['download_url']]
-                            pdf_names = [link['file_name'] for link in pdf_links if link['file_name']]
+                        if processing_type == "PDF 링크":
+                            # PDF 다운로드 링크 찾기
+                            pdf_links = get_pdf_download_links(driver, content_element)
                             
-                            if pdf_urls:
-                                # D열(PDF 링크)와 G열(파일명) 업데이트
-                                sheet.update_cell(idx, 4, ', '.join(pdf_urls))  # D열
-                                sheet.update_cell(idx, 7, ', '.join(pdf_names))  # G열
-                                log_message(f"업데이트 완료: {title}")
-                                time.sleep(1)  # API 제한 방지
+                            if pdf_links:
+                                # PDF 링크와 파일명을 콤마로 구분하여 저장
+                                pdf_urls = [link['download_url'] for link in pdf_links if link['download_url']]
+                                pdf_names = [link['file_name'] for link in pdf_links if link['file_name']]
+                                
+                                if pdf_urls:
+                                    # D열(PDF 링크)와 G열(파일명) 업데이트
+                                    sheet.update_cell(idx, 4, ', '.join(pdf_urls))  # D열
+                                    sheet.update_cell(idx, 7, ', '.join(pdf_names))  # G열
+                                    updated = True
+                                    log_message(f"PDF 링크 업데이트 완료: {title}")
+                            
+                            # 내용도 함께 업데이트 (PDF 링크가 없었던 경우 내용도 비어있을 가능성이 높음)
+                            if content_text:
+                                sheet.update_cell(idx, 5, content_text)  # E열
+                                updated = True
+                                log_message(f"내용도 함께 업데이트: {title}")
+                                
+                        elif processing_type == "내용":
+                            # 내용만 업데이트
+                            if content_text:
+                                sheet.update_cell(idx, 5, content_text)  # E열
+                                updated = True
+                                log_message(f"내용 업데이트 완료: {title}")
+                        
+                        if updated:
+                            time.sleep(1)  # API 제한 방지
                         else:
-                            log_message(f"PDF 링크를 찾을 수 없음: {title}")
+                            log_message(f"업데이트할 내용을 찾을 수 없음: {title}")
                 except Exception as e:
                     log_message(f"행 처리 중 오류: {str(e)}")
                     continue
@@ -1233,7 +1295,7 @@ if __name__ == "__main__":
                     important_keywords = ['중요', '긴급', '필수', '공지', '알림']
                     is_important = "중요" if any(keyword in title for keyword in important_keywords) else "일반"
                     
-                    # 데이터 추가
+                    # 데이터 추가 (맨 위에 삽입)
                     row_data = [
                         title,
                         result["date"],
@@ -1245,17 +1307,18 @@ if __name__ == "__main__":
                         datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     ]
                     
-                    sheet.append_row(row_data)
-                    print(f"새 데이터 추가: {title}")
+                    # 헤더 다음인 2번째 행에 삽입 (최신글이 맨 위에 오도록)
+                    sheet.insert_row(row_data, 2)
+                    print(f"새 데이터 추가 (맨 위): {title}")
                     time.sleep(1)  # API 제한 방지
                 else:
                     print(f"이미 존재하는 데이터: {title}")
             
             print(f"새로운 콘텐츠 크롤링 완료: {len(new_results)}개 항목 처리")
         
-        # 2. PDF 링크가 없는 기존 항목 처리
-        print("\n=== PDF 링크 누락 항목 처리 시작 ===")
-        process_missing_pdfs('Boss_pdf2')
+        # 2. PDF 링크가 없거나 내용이 비어있는 기존 항목 처리
+        print("\n=== 누락된 콘텐츠 처리 시작 ===")
+        process_missing_content('Boss_pdf2')
         
         print("\n=== 모든 처리 완료 ===")
         
