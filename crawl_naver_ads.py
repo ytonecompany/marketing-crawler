@@ -205,12 +205,42 @@ def crawl_naver_ads():
                             pass
                     raise Exception("공지사항 컨테이너를 찾을 수 없습니다.")
             
-            # 공지사항 항목들 찾기
+            # 공지사항 항목들 찾기 (페이지네이션과 버튼 박스 제외)
             try:
                 items = notice_container.find_elements(By.CSS_SELECTOR, ".post_tbody > li")
                 if not items:
                     items = notice_container.find_elements(By.CSS_SELECTOR, "li")
-                print(f"찾은 항목 수: {len(items)}")
+                
+                # 페이지네이션과 버튼 박스 요소 제외
+                filtered_items = []
+                for item in items:
+                    try:
+                        # 페이지네이션 클래스가 있는지 확인
+                        pagination_elements = item.find_elements(By.CSS_SELECTOR, ".pagination")
+                        if pagination_elements:
+                            print("페이지네이션 요소 제외")
+                            continue
+                        
+                        # 버튼 박스 클래스가 있는지 확인
+                        btn_box_elements = item.find_elements(By.CSS_SELECTOR, ".btn_box")
+                        if btn_box_elements:
+                            print("버튼 박스 요소 제외")
+                            continue
+                        
+                        # 부모 요소에서도 페이지네이션/버튼 박스 확인
+                        parent = item.find_element(By.XPATH, "..")
+                        parent_class = parent.get_attribute("class")
+                        if "pagination" in parent_class or "btn_box" in parent_class:
+                            print("부모 요소가 페이지네이션/버튼 박스인 항목 제외")
+                            continue
+                        
+                        filtered_items.append(item)
+                    except Exception as e:
+                        print(f"항목 필터링 중 오류: {str(e)}")
+                        continue
+                
+                items = filtered_items
+                print(f"필터링 후 항목 수: {len(items)}")
             except Exception as e:
                 print(f"공지사항 항목을 찾을 수 없습니다: {str(e)}")
                 items = []
